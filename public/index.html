@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#111827"><meta name="description" content="VozChat: conversas e mensagens de voz, em qualquer dispositivo."><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="/icons/icon.svg"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png"><link rel="stylesheet" href="/styles.css"><title>VozChat — Conversas e áudios</title></head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="offline" class="offline" hidden>Você está offline. Conecte-se para enviar mensagens.</div>
+  <section id="auth" class="auth-page">
+    <div class="auth-brand"><div class="mark">◖<span>◗</span></div><h1>VozChat<span>.</span></h1><p>Conversas que conectam. Voz que aproxima.</p></div>
+    <div class="auth-card"><div class="eyebrow">SEU ESPAÇO DE CONVERSA</div><h2 id="authTitle">Entre na sua conta</h2><p class="auth-desc">Mensagens em tempo real e áudios, sem complicação.</p>
+      <form id="authForm"><label class="field" id="nameField" hidden>Seu nome<input id="realName" autocomplete="name" placeholder="Como quer ser chamado?" maxlength="48"></label><label class="field">Nome de usuário<input id="username" autocomplete="username" placeholder="ex.: mariana.silva" autocapitalize="none" spellcheck="false" required minlength="3" maxlength="24"></label><label class="field">Senha<input id="password" type="password" autocomplete="current-password" placeholder="Mínimo de 8 caracteres" required></label><button id="authSubmit" class="primary" type="submit">Entrar <span>→</span></button></form>
+      <p class="switch-auth" id="authSwitchLabel">Ainda não tem conta? <button id="authSwitch" type="button" class="text-button">Criar conta</button></p><div class="auth-hint"><span>🔒</span> Conversas privadas por convite. Seus dados ficam no seu servidor.</div>
+    </div><div class="auth-footer">PWA para Android, iPhone e computador.</div>
+  </section>
+  <main id="app" class="app" hidden>
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head"><div class="identity"><div class="small-logo">◖◗</div><div><h1>VozChat<span>.</span></h1><p>Mensagens e voz</p></div></div><button class="icon-button" title="Instalar aplicativo" id="installButton" aria-label="Instalar aplicativo">⬇</button></div>
+      <div class="sidebar-title"><div><div class="eyebrow">SUAS CONVERSAS</div><h2>Mensagens</h2></div><button class="new-button" id="newRoom" type="button" title="Nova conversa" aria-label="Nova conversa">+</button></div>
+      <div class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Buscar conversa" aria-label="Buscar conversa"></div>
+      <div id="roomList" class="room-list"></div>
+      <footer class="sidebar-foot"><div class="user-avatar" id="meAvatar">V</div><div class="me-info"><strong id="meName">Você</strong><span id="meUsername">@usuario</span></div><button id="logout" class="icon-button" aria-label="Sair da conta" title="Sair da conta">↪</button></footer>
+    </aside>
+    <section class="chat" id="chat">
+      <div class="empty-chat" id="emptyChat"><div class="empty-symbol"><span>◖◗</span><i>✳</i></div><h2>Suas conversas começam aqui</h2><p>Crie uma conversa, compartilhe o convite e comece a falar por texto ou áudio.</p><button class="primary inline" id="emptyCreate">+ Iniciar conversa</button><div class="feature-row"><span>✦ Mensagens em tempo real</span><span>◉ Áudios pelo microfone</span><span>↗ Convites privados</span></div></div>
+      <div id="activeChat" class="active-chat" hidden>
+        <header class="chat-top"><button id="mobileBack" class="back-button" aria-label="Voltar às conversas">‹</button><div id="headerAvatar" class="chat-avatar">C</div><div class="chat-title"><strong id="roomName"></strong><span id="memberCount">Conversa privada</span></div><button id="inviteButton" class="outline-button">↗ <span>Convidar</span></button></header>
+        <div id="messages" class="messages" aria-live="polite" aria-label="Mensagens da conversa"></div>
+        <div class="composer-zone"><div class="recording" id="recording" hidden><div class="record-dot"></div><span id="recordTime">Gravando · 0:00</span><button id="cancelAudio" type="button" class="cancel-button">Cancelar</button></div><form id="composer" class="composer"><textarea id="msgInput" rows="1" placeholder="Escreva uma mensagem..." aria-label="Mensagem" maxlength="2000"></textarea><button id="micButton" type="button" title="Gravar mensagem de voz" aria-label="Iniciar gravação" class="mic-button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8"/></svg></button><button class="send-button" aria-label="Enviar mensagem" title="Enviar mensagem" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button></form><small class="composer-note">Para gravar, toque no microfone. Toque novamente para enviar.</small></div>
+      </div>
+    </section>
+  </main>
+  <dialog id="roomDialog" class="dialog"><form method="dialog" id="roomForm"><div class="dialog-head"><div class="dialog-icon">✦</div><button class="dialog-close" type="button" data-close="roomDialog" aria-label="Fechar">×</button></div><h2>Criar conversa</h2><p>Escolha um nome e convide quem vai participar.</p><label class="field">Nome da conversa<input id="newRoomName" maxlength="60" placeholder="Ex.: Equipe da clínica" required></label><button class="primary" type="submit">Criar conversa →</button></form></dialog>
+  <dialog id="inviteDialog" class="dialog"><div class="dialog-head"><div class="dialog-icon">↗</div><button class="dialog-close" type="button" data-close="inviteDialog" aria-label="Fechar">×</button></div><h2>Compartilhar convite</h2><p>Quem receber esse link poderá entrar na conversa. Compartilhe apenas com pessoas de confiança.</p><label class="field">Link da conversa<input id="inviteLink" readonly></label><button id="copyInvite" class="primary" type="button">Copiar link de convite</button></dialog>
+  <script type="module" src="/app.js"></script>
+</body></html>
