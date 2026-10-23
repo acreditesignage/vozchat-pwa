@@ -278,208 +278,204 @@ $('#groupDeleteButton').addEventListener('click',async()=>{
     toast('Grupo excluído definitivamente.');
   }catch(err){toast(err.message);}finally{button.disabled=false;}
 });
-// FlowTalk AO VIVO via WebRTC: fala enquanto o botão está pressionado, sem gravar no servidor.
+// FlowTalk ao vivo: captura e toca pacotes PCM de 20 ms em Web Audio.
+// O servidor só encaminha a voz durante o pressionamento; não grava nem cria mensagens.
 let liveRadio=null;
-const talkButton=$('#flowtalkHold'),listenButton=$('#flowtalkListen'),talkOutputs=$('#flowtalkAudioOutputs');
-function liveStatus(label){$('#flowtalkStatus').textContent=label;}
-function liveSend(session,payload){
+const talkButton=$('#flowtalkHold'),listenButton=$('#flowtalkListen');
+function liveStatus(text){$('#flowtalkStatus').textContent=text;}
+function radioSend(session,payload){
   if(session.ws?.readyState===WebSocket.OPEN)session.ws.send(JSON.stringify(payload));
 }
-function updateLiveControls(session){
+function radioUI(session){
   if(liveRadio!==session)return;
-  const connected=[...session.peers.values()].filter(p=>p.pc.connectionState==='connected').length;
-  const other=session.speakerId&&session.speakerId!==session.clientId;
-  talkButton.disabled=!session.ready||!connected||!!other;
-  $('#flowtalkParticipants').textContent=connected+' ouvindo · '+session.peers.size+' no canal';
-  if(other)liveStatus('📻 '+(session.speakerName||'Outra pessoa')+' está falando');
-  else if(!session.holding)liveStatus(connected?'Canal livre. Segure para falar AO VIVO.':'Aguardando outro aparelho conectar ao rádio...');
+  const count=session.peerCount||0;
+  const occupied=!!session.speakerId&&session.speakerId!==session.clientId;
+  talkButton.disabled=!session.ready||count<1||occupied||session.ctx?.state==='closed';
+  $('#flowtalkParticipants').textContent=count+' participante(s) conectado(s) · rádio ao vivo';
+  if(occupied)liveStatus('📻 '+(session.speakerName||'Outra pessoa')+' está falando agora');
+  else if(!session.holding)liveStatus(count?'Canal livre · segure para falar AO VIVO':'Aguardando outro aparelho abrir o FlowTalk...');
 }
-function closeLivePeer(session,peerId){
-  const entry=session.peers.get(peerId);if(!entry)return;
-  session.peers.delete(peerId);
-  try{entry.audio?.pause();entry.audio?.remove();entry.pc.close();}catch{}
-  updateLiveControls(session);
+function resetRadioSpeaker(session){
+  session.speakerNode?.port.postMessage({type:'reset'});
 }
 function stopLiveRadio(){
-  const session=liveRadio;if(!session)return;
-  liveRadio=null;
-  session.holding=false;session.granted=false;
+  const session=liveRadio;
+  if(!session)return;
+  liveRadio=null;session.holding=false;session.granted=false;
   if(session.track)session.track.enabled=false;
-  liveSend(session,{type:'floor-release'});
-  try{session.ws?.close(1000,'Rádio desligado');}catch{}
-  for(const peerId of [...session.peers.keys()])closeLivePeer(session,peerId);
+  session.micNode?.port.postMessage({type:'enabled',value:false});
+  radioSend(session,{type:'floor-release'});
+  try{session.ws?.close(1000,'Rádio encerrado');}catch{}
   try{session.stream?.getTracks().forEach(t=>t.stop());}catch{}
-  talkOutputs.replaceChildren();
-  talkButton.classList.remove('talking');talkButton.disabled=true;talkButton.textContent='🎙 Segure para falar';
-  $('#flowtalkPanel').hidden=true;$('#flowtalkToggle').classList.remove('flowtalk-active');
+  try{session.micNode?.disconnect();session.speakerNode?.disconnect();session.micSource?.disconnect();}catch{}
+  try{void session.ctx?.close();}catch{}
+  talkButton.classList.remove('talking');
+  talkButton.textContent='🎙 Segure para falar';
+  talkButton.disabled=true;
+  $('#flowtalkPanel').hidden=true;
+  $('#flowtalkToggle').classList.remove('flowtalk-active');
   $('#flowtalkToggle').setAttribute('aria-pressed','false');
   liveStatus('Rádio desligado.');
 }
-function ensurePeer(session,peerId){
-  if(!peerId||peerId===session.clientId)return null;
-  let peer=session.peers.get(peerId);
-  if(peer)return peer;
-  const pc=new RTCPeerConnection({iceServers:session.iceServers});
-  peer={pc,pendingIce:[],audio:null};
-  session.peers.set(peerId,peer);
-  pc.addTrack(session.track,session.stream);
-  pc.onicecandidate=e=>{
-    if(e.candidate&&liveRadio===session)liveSend(session,{type:'signal',to:peerId,signal:{type:'candidate',candidate:e.candidate.toJSON()}});
-  };
-  pc.ontrack=e=>{
-    if(liveRadio!==session)return;
-    const media=e.streams[0]||new MediaStream([e.track]);
-    let audio=peer.audio;
-    if(!audio){
-      audio=document.createElement('audio');audio.autoplay=true;audio.playsInline=true;
-      audio.setAttribute('playsinline','');talkOutputs.append(audio);peer.audio=audio;
-    }
-    audio.srcObject=media;audio.muted=!$('#flowtalkAutoPlay').checked;
-    audio.play().catch(()=>{if(liveRadio===session)listenButton.hidden=false;});
-  };
-  pc.onconnectionstatechange=()=>{
-    if(liveRadio!==session)return;
-    if(pc.connectionState==='failed'){liveStatus('Conexão de voz falhou. Saia e entre no rádio novamente.');}
-    updateLiveControls(session);
-  };
-  return peer;
-}
-async function offerToPeer(session,peerId){
-  const peer=ensurePeer(session,peerId);
-  if(!peer||liveRadio!==session)return;
-  try{
-    const desc=await peer.pc.createOffer();
-    await peer.pc.setLocalDescription(desc);
-    liveSend(session,{type:'signal',to:peerId,signal:{type:'offer',sdp:peer.pc.localDescription.sdp}});
-  }catch(e){if(liveRadio===session)liveStatus('Não foi possível conectar o áudio.');}
-}
-async function processTalkSignal(session,msg){
-  if(liveRadio!==session)return;
-  const peer=ensurePeer(session,msg.from),signal=msg.signal;
-  if(!peer||!signal)return;
-  try{
-    if(signal.type==='candidate'){
-      if(peer.pc.remoteDescription)await peer.pc.addIceCandidate(signal.candidate);
-      else peer.pendingIce.push(signal.candidate);
-    }else if(signal.type==='offer'){
-      await peer.pc.setRemoteDescription({type:'offer',sdp:signal.sdp});
-      for(const ice of peer.pendingIce.splice(0))await peer.pc.addIceCandidate(ice);
-      const answer=await peer.pc.createAnswer();
-      await peer.pc.setLocalDescription(answer);
-      liveSend(session,{type:'signal',to:msg.from,signal:{type:'answer',sdp:peer.pc.localDescription.sdp}});
-    }else if(signal.type==='answer'){
-      await peer.pc.setRemoteDescription({type:'answer',sdp:signal.sdp});
-      for(const ice of peer.pendingIce.splice(0))await peer.pc.addIceCandidate(ice);
-    }
-  }catch(err){if(liveRadio===session)liveStatus('Falha na conexão P2P. Tente entrar novamente.');}
-}
-function beginLiveTransmission(){
+function startRadioTalk(){
   const session=liveRadio;
-  if(!session||!session.ready||session.holding||talkButton.disabled)return;
+  if(!session?.ready||session.holding||talkButton.disabled)return;
+  if(session.ctx.state==='suspended')void session.ctx.resume().catch(()=>{});
   session.holding=true;session.granted=false;
   liveStatus('Solicitando canal livre...');
-  liveSend(session,{type:'floor-request'});
+  radioSend(session,{type:'floor-request'});
 }
-function endLiveTransmission(){
+function stopRadioTalk(){
   const session=liveRadio;if(!session)return;
   session.holding=false;session.granted=false;
   if(session.track)session.track.enabled=false;
-  talkButton.classList.remove('talking');talkButton.textContent='🎙 Segure para falar';
-  liveSend(session,{type:'floor-release'});
-  updateLiveControls(session);
+  session.micNode?.port.postMessage({type:'enabled',value:false});
+  talkButton.classList.remove('talking');
+  talkButton.textContent='🎙 Segure para falar';
+  radioSend(session,{type:'floor-release'});
+  radioUI(session);
 }
-async function startLiveRadio(){
+async function openLiveRadio(){
   if(liveRadio){stopLiveRadio();return;}
-  if(!current||!navigator.mediaDevices?.getUserMedia||!window.RTCPeerConnection||!window.WebSocket){
-    toast('Este navegador não suporta rádio em tempo real.');return;
+  if(!current||!navigator.mediaDevices?.getUserMedia||!window.WebSocket||
+    !window.AudioContext&&!window.webkitAudioContext||!window.AudioWorkletNode){
+    toast('Seu navegador não permite rádio ao vivo. Atualize o Safari ou Chrome.');return;
   }
-  // Pedir acesso ao microfone diretamente no clique para funcionar no Safari/iPhone.
-  const micPromise=navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
-  const session={roomId:current,ws:null,clientId:null,stream:null,track:null,peers:new Map(),iceServers:[],ready:false,holding:false,granted:false,speakerId:null,speakerName:null};
+  const Context=window.AudioContext||window.webkitAudioContext;
+  // Criado diretamente no toque: Safari exige gesto para habilitar a saída de áudio.
+  const ctx=new Context({latencyHint:'interactive'});
+  const resume=ctx.resume();
+  const micPromise=navigator.mediaDevices.getUserMedia({audio:{
+    echoCancellation:true,noiseSuppression:true,autoGainControl:true
+  }});
+  const session={roomId:current,ctx,ws:null,stream:null,track:null,micNode:null,speakerNode:null,
+    micSource:null,clientId:null,ready:false,holding:false,granted:false,
+    speakerId:null,speakerName:null,peerCount:0};
   liveRadio=session;
   $('#flowtalkPanel').hidden=false;
   $('#flowtalkToggle').classList.add('flowtalk-active');
   $('#flowtalkToggle').setAttribute('aria-pressed','true');
-  talkButton.disabled=true;
-  liveStatus('Abrindo canal de voz ao vivo...');
-  unlockAlertAudio();
+  listenButton.hidden=false;talkButton.disabled=true;
+  liveStatus('Ligando microfone e alto-falante...');
   try{
-    const configPromise=api('/api/talk/ice-config');
-    const [stream,config]=await Promise.all([micPromise,configPromise]);
-    if(liveRadio!==session){stream.getTracks().forEach(t=>t.stop());return;}
-    session.stream=stream;session.track=stream.getAudioTracks()[0];
-    if(!session.track)throw new Error('Nenhum microfone disponível.');
+    // Em iPhones compatíveis, mantém a sessão apropriada para voz bidirecional.
+    try{if(navigator.audioSession)navigator.audioSession.type='play-and-record';}catch{}
+    const [stream]=await Promise.all([
+      micPromise,ctx.audioWorklet.addModule('/talk-worklet.js'),resume
+    ]);
+    if(liveRadio!==session){stream.getTracks().forEach(t=>t.stop());void ctx.close();return;}
+    session.stream=stream;
+    session.track=stream.getAudioTracks()[0];
+    if(!session.track)throw Error('Microfone não encontrado.');
     session.track.enabled=false;
-    session.iceServers=Array.isArray(config.iceServers)?config.iceServers:[];
-    session.track.onended=()=>{if(liveRadio===session){toast('Microfone desconectado.');stopLiveRadio();}};
-    const protocol=location.protocol==='https:'?'wss:':'ws:';
-    const ws=new WebSocket(protocol+'//'+location.host+'/api/talk/ws?room='+encodeURIComponent(session.roomId));
-    session.ws=ws;
-    ws.onmessage=event=>{
+    session.track.onended=()=>{if(liveRadio===session){toast('Microfone desligado.');stopLiveRadio();}};
+    const micSource=ctx.createMediaStreamSource(stream);
+    const micNode=new AudioWorkletNode(ctx,'vozchat-mic-stream',{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[1]});
+    const silent=ctx.createGain();silent.gain.value=0;
+    micSource.connect(micNode).connect(silent).connect(ctx.destination);
+    const speakerNode=new AudioWorkletNode(ctx,'vozchat-speaker-stream',{
+      numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[1]
+    });
+    const speakerGain=ctx.createGain();speakerGain.gain.value=$('#flowtalkAutoPlay').checked?1:0;
+    speakerNode.connect(speakerGain).connect(ctx.destination);
+    session.micNode=micNode;session.micSource=micSource;session.speakerNode=speakerNode;session.speakerGain=speakerGain;
+    micNode.port.onmessage=e=>{
+      if(liveRadio!==session||!session.granted||!session.holding||session.ws?.readyState!==WebSocket.OPEN)return;
+      const pcm=e.data?.pcm;
+      if(!(pcm instanceof ArrayBuffer)||pcm.byteLength!==640)return;
+      if(session.ws.bufferedAmount<16384)session.ws.send(pcm);
+    };
+    const proto=location.protocol==='https:'?'wss:':'ws:';
+    const ws=new WebSocket(proto+'//'+location.host+'/api/talk/ws?room='+encodeURIComponent(session.roomId));
+    ws.binaryType='arraybuffer';session.ws=ws;
+    ws.onmessage=e=>{
       if(liveRadio!==session)return;
-      let msg;try{msg=JSON.parse(event.data);}catch{return;}
+      if(e.data instanceof ArrayBuffer){
+        if($('#flowtalkAutoPlay').checked)session.speakerNode?.port.postMessage({type:'pcm',pcm:e.data},[e.data]);
+        return;
+      }
+      let msg;try{msg=JSON.parse(e.data);}catch{return;}
       if(msg.type==='ready'){
         session.clientId=msg.clientId;session.ready=true;
-        session.speakerName=msg.speaker||null;session.speakerId=msg.speaker?'other':null;
-        updateLiveControls(session);
+        session.peerCount=msg.peers?.length||0;
+        session.speakerId=msg.speakerId||null;session.speakerName=msg.speaker||null;
+        radioUI(session);
       }else if(msg.type==='peer-joined'){
-        void offerToPeer(session,msg.clientId);
+        session.peerCount++;radioUI(session);
       }else if(msg.type==='peer-left'){
-        closeLivePeer(session,msg.clientId);
-        if(session.speakerId===msg.clientId){session.speakerId=null;session.speakerName=null;}
-        updateLiveControls(session);
-      }else if(msg.type==='signal'){
-        void processTalkSignal(session,msg);
+        session.peerCount=Math.max(0,session.peerCount-1);
+        if(session.speakerId===msg.clientId){session.speakerId=null;session.speakerName=null;resetRadioSpeaker(session);}
+        radioUI(session);
       }else if(msg.type==='floor'){
-        session.speakerId=msg.clientId;session.speakerName=msg.name;
-        updateLiveControls(session);
+        session.speakerId=msg.clientId||null;
+        session.speakerName=msg.name||null;
+        if(!msg.clientId)resetRadioSpeaker(session);
+        radioUI(session);
       }else if(msg.type==='floor-granted'){
-        if(!session.holding){liveSend(session,{type:'floor-release'});return;}
-        session.granted=true;session.track.enabled=true;
-        talkButton.classList.add('talking');talkButton.textContent='🔴 NO AR · solte para parar';
+        if(!session.holding){radioSend(session,{type:'floor-release'});return;}
+        session.granted=true;
+        session.track.enabled=true;
+        session.micNode.port.postMessage({type:'enabled',value:true});
+        talkButton.classList.add('talking');
+        talkButton.textContent='🔴 NO AR · solte para parar';
         liveStatus('🔴 SUA VOZ ESTÁ SAINDO AGORA');
         if(typeof navigator.vibrate==='function')try{navigator.vibrate(45);}catch{}
       }else if(msg.type==='floor-denied'){
         session.holding=false;session.granted=false;
-        liveStatus('Canal ocupado. Aguarde a outra pessoa terminar.');
-      }else if(msg.type==='error'){liveStatus(msg.message||'Falha no rádio.');}
+        liveStatus('Canal ocupado. Aguarde quem está falando terminar.');
+      }else if(msg.type==='error')liveStatus(msg.message||'Falha no canal.');
     };
-    ws.onerror=()=>{if(liveRadio===session)liveStatus('Falha na conexão de voz.');};
+    ws.onerror=()=>{if(liveRadio===session)liveStatus('Erro na conexão com o rádio.');};
     ws.onclose=()=>{if(liveRadio===session){toast('Rádio desconectado. Abra novamente.');stopLiveRadio();}};
-  }catch(e){
-    if(liveRadio===session){toast(e.name==='NotAllowedError'?'Permita o microfone nas configurações.':(e.message||'Rádio indisponível.'));stopLiveRadio();}
+  }catch(err){
+    if(liveRadio===session){
+      toast(err.name==='NotAllowedError'?'Permita acesso ao microfone para usar o rádio.':(err.message||'Falha ao iniciar áudio ao vivo.'));
+      stopLiveRadio();
+    }
   }
 }
-$('#flowtalkToggle').addEventListener('click',()=>{void startLiveRadio();});
+$('#flowtalkToggle').addEventListener('click',()=>{void openLiveRadio();});
 talkButton.addEventListener('pointerdown',e=>{
   if(e.button!==0)return;
   e.preventDefault();
   try{talkButton.setPointerCapture(e.pointerId);}catch{}
-  beginLiveTransmission();
+  startRadioTalk();
 });
-for(const eventType of ['pointerup','pointercancel','lostpointercapture']){
-  talkButton.addEventListener(eventType,()=>{if(liveRadio?.holding)endLiveTransmission();});
+for(const name of ['pointerup','pointercancel','lostpointercapture']){
+  talkButton.addEventListener(name,()=>{if(liveRadio?.holding)stopRadioTalk();});
 }
 talkButton.addEventListener('keydown',e=>{
   if(e.repeat)return;
-  if(e.code==='Space'||e.code==='Enter'){e.preventDefault();beginLiveTransmission();}
+  if(e.code==='Space'||e.code==='Enter'){e.preventDefault();startRadioTalk();}
 });
 talkButton.addEventListener('keyup',e=>{
-  if(e.code==='Space'||e.code==='Enter'){e.preventDefault();endLiveTransmission();}
+  if(e.code==='Space'||e.code==='Enter'){e.preventDefault();stopRadioTalk();}
 });
 $('#flowtalkAutoPlay').addEventListener('change',()=>{
-  for(const audio of talkOutputs.querySelectorAll('audio')){
-    audio.muted=!$('#flowtalkAutoPlay').checked;
-    if(!audio.muted)audio.play().catch(()=>{});
-  }
+  const session=liveRadio;
+  if(session?.speakerGain)session.speakerGain.gain.value=$('#flowtalkAutoPlay').checked?1:0;
+  if(!$('#flowtalkAutoPlay').checked&&session)resetRadioSpeaker(session);
 });
-listenButton.addEventListener('click',()=>{
-  unlockAlertAudio();
-  for(const audio of talkOutputs.querySelectorAll('audio'))audio.play().catch(()=>toast('Áudio bloqueado pelo navegador.'));
-  toast('Alto-falante habilitado. Mantenha o rádio aberto.');
+listenButton.addEventListener('click',async()=>{
+  const session=liveRadio;if(!session)return;
+  try{
+    await session.ctx.resume();
+    // Toque de confirmação do próprio alto-falante (não é mensagem de rádio).
+    const oscillator=session.ctx.createOscillator(),gain=session.ctx.createGain();
+    gain.gain.setValueAtTime(.0001,session.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(.12,session.ctx.currentTime+.025);
+    gain.gain.exponentialRampToValueAtTime(.0001,session.ctx.currentTime+.18);
+    oscillator.frequency.value=880;
+    oscillator.connect(gain).connect(session.ctx.destination);
+    oscillator.start();oscillator.stop(session.ctx.currentTime+.19);
+    $('#flowtalkAutoPlay').checked=true;
+    if(session.speakerGain)session.speakerGain.gain.value=1;
+    toast('Toque de teste enviado ao alto-falante.');
+  }catch{toast('Falha ao ativar alto-falante. Confira o volume do aparelho.');}
 });
 document.addEventListener('visibilitychange',()=>{
-  if(document.hidden&&liveRadio?.holding)endLiveTransmission();
+  if(document.hidden&&liveRadio?.holding)stopRadioTalk();
+  else if(!document.hidden&&liveRadio?.ctx?.state==='suspended')void liveRadio.ctx.resume().catch(()=>{});
 });
 window.addEventListener('pagehide',()=>stopLiveRadio());
 

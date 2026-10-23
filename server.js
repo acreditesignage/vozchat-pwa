@@ -386,8 +386,8 @@ if(process.env.NODE_ENV==='production'&&!pool)throw new Error('DATABASE_URL ause
 await startStorage();
 await ensurePublicIds();
 
-// FlowTalk AO VIVO: sinalização WebRTC via WebSocket, sem gravar áudio ou SDP no banco.
-const talkWss=new WebSocketServer({noServer:true,maxPayload:65536,perMessageDeflate:false});
+// FlowTalk AO VIVO: frames PCM mono 16 kHz por WebSocket, sem gravação nem persistência.
+const talkWss=new WebSocketServer({noServer:true,maxPayload:4096,perMessageDeflate:false});
 const talkRooms=new Map(); // roomId -> conexões autenticadas
 const talkFloor=new Map(); // roomId -> conexão que detém o botão de fala
 function talkSend(ws,payload){if(ws.readyState===1)try{ws.send(JSON.stringify(payload));}catch{}}
@@ -416,22 +416,7 @@ function talkHandle(ws,payload){
   if(!payload||typeof payload!=='object'||Array.isArray(payload))return;
   if(!member(ws.talkUserId,ws.talkRoom)){ws.close(4003,'Sem acesso à conversa');return;}
   const peers=talkRooms.get(ws.talkRoom);
-  if(payload.type==='signal'){
-    const dest=[...peers||[]].find(p=>p.talkId===payload.to && p!==ws);
-    const signal=payload.signal;
-    if(!dest || !signal || typeof signal!=='object')return;
-    if(signal.type==='offer'||signal.type==='answer'){
-      if(typeof signal.sdp!=='string'||signal.sdp.length>25000)return;
-      talkSend(dest,{type:'signal',from:ws.talkId,signal:{type:signal.type,sdp:signal.sdp}});
-    }else if(signal.type==='candidate'){
-      const c=signal.candidate;
-      if(!c||typeof c.candidate!=='string'||c.candidate.length>5000)return;
-      talkSend(dest,{type:'signal',from:ws.talkId,signal:{type:'candidate',candidate:{
-        candidate:c.candidate,sdpMid:typeof c.sdpMid==='string'?c.sdpMid.slice(0,40):null,
-        sdpMLineIndex:Number.isInteger(c.sdpMLineIndex)?c.sdpMLineIndex:null
-      }}});
-    }
-  }else if(payload.type==='floor-request'){
+  if(payload.type==='floor-request'){
     const active=talkFloor.get(ws.talkRoom);
     if(active&&active!==ws.talkId)return talkSend(ws,{type:'floor-denied'});
     talkFloor.set(ws.talkRoom,ws.talkId);
@@ -451,15 +436,31 @@ talkWss.on('connection',(ws,req,context)=>{
   talkRooms.set(context.rid,group);
   talkSend(ws,{type:'ready',clientId:ws.talkId,
     peers:[...group].map(p=>({clientId:p.talkId,name:p.talkUserName})),
-    speaker:[...group].find(p=>p.talkId===talkFloor.get(context.rid))?.talkUserName||null
+    speaker:[...group].find(p=>p.talkId===talkFloor.get(context.rid))?.talkUserName||null,
+    speakerId:talkFloor.get(context.rid)||null
   });
   group.add(ws);
   talkBroadcast(context.rid,{type:'peer-joined',clientId:ws.talkId,name:ws.talkUserName},ws);
   ws.isAlive=true;
   ws.on('pong',()=>{ws.isAlive=true;});
-  ws.on('message',data=>{
+  ws.audioWindowStart=Date.now();ws.audioPackets=0;ws.audioBytes=0;
+  ws.on('message',(data,isBinary)=>{
+    if(isBinary){
+      if(!member(ws.talkUserId,ws.talkRoom)){ws.close(4003,'Sem acesso');return;}
+      if(talkFloor.get(ws.talkRoom)!==ws.talkId)return;
+      // Frames PCM s16 mono 16 kHz. Cada frame possui 20 ms (640 bytes).
+      if(data.length!==640)return;
+      const now=Date.now();
+      if(now-ws.audioWindowStart>1000){ws.audioWindowStart=now;ws.audioPackets=0;ws.audioBytes=0;}
+      if(++ws.audioPackets>75)return; // limite de tráfego, não persistir frames
+      for(const peer of talkRooms.get(ws.talkRoom)||[]){
+        if(peer===ws || peer.readyState!==1 || peer.bufferedAmount>64*1024)continue;
+        try{peer.send(data,{binary:true,compress:false});}catch{}
+      }
+      return;
+    }
     try{talkHandle(ws,JSON.parse(data.toString()));}
-    catch{talkSend(ws,{type:'error',message:'Sinalização inválida.'});}
+    catch{talkSend(ws,{type:'error',message:'Comando de rádio inválido.'});}
   });
   ws.on('close',()=>talkLeave(ws));
   ws.on('error',()=>{});

@@ -70,24 +70,41 @@ test('FlowTalk e gestão de grupos: administrador, revogação, saída e exclus�
       const ws=new WebSocket('ws://127.0.0.1:'+port+'/api/talk/ws?room='+rid,{
         headers:{cookie,Origin:base}
       });
-      const buffer=[],waiters=[];
+      const buffer=[],waiters=[],binaryBuffer=[],binaryWaiters=[];
       const conn={
-        ws,buffer,
+        ws,buffer,binaryBuffer,
         wait(type){
           const index=buffer.findIndex(m=>m.type===type);
           if(index>=0)return Promise.resolve(buffer.splice(index,1)[0]);
           return new Promise((yes,no)=>{
-            const timer=setTimeout(()=>{const at=waiters.findIndex(w=>w.yes===yes);if(at>=0)waiters.splice(at,1);no(new Error('WebSocket sem mensagem '+type));},2500);
-            waiters.push({type,yes:v=>{clearTimeout(timer);yes(v);},timer});
+            const timer=setTimeout(()=>{
+              const at=waiters.findIndex(w=>w.resolve===deliver);
+              if(at>=0)waiters.splice(at,1);
+              no(new Error('WebSocket sem mensagem '+type));
+            },2500);
+            const deliver=msg=>{clearTimeout(timer);yes(msg);};
+            waiters.push({type,resolve:deliver});
+          });
+        },
+        waitAudio(){
+          if(binaryBuffer.length)return Promise.resolve(binaryBuffer.shift());
+          return new Promise((yes,no)=>{
+            const timer=setTimeout(()=>no(new Error('WebSocket sem áudio PCM ao vivo')),2500);
+            binaryWaiters.push(v=>{clearTimeout(timer);yes(v);});
           });
         },
         send(x){ws.send(JSON.stringify(x));}
       };
-      ws.on('message',v=>{
+      ws.on('message',(v,isBinary)=>{
+        if(isBinary){
+          if(binaryWaiters.length)binaryWaiters.shift()(Buffer.from(v));
+          else binaryBuffer.push(Buffer.from(v));
+          return;
+        }
         try{
           const msg=JSON.parse(String(v));
           const at=waiters.findIndex(w=>w.type===msg.type);
-          if(at>=0){const waiter=waiters.splice(at,1)[0];clearTimeout(waiter.timer);waiter.yes(msg);}
+          if(at>=0)waiters.splice(at,1)[0].resolve(msg);
           else buffer.push(msg);
         }catch{}
       });
@@ -100,12 +117,24 @@ test('FlowTalk e gestão de grupos: administrador, revogação, saída e exclus�
   const radioBReady=await radioB.wait('ready');
   assert.equal(radioBReady.peers.length,1);
   assert.equal((await radioA.wait('peer-joined')).clientId,radioBReady.clientId);
-  // Sinalização de oferta/ICE passa entre participantes autorizados.
-  radioA.send({type:'signal',to:radioBReady.clientId,signal:{type:'offer',sdp:'v=0\r\n'}});
-  assert.equal((await radioB.wait('signal')).signal.type,'offer');
+  // Streaming apenas enquanto o locutor segura o botão e recebe autorização.
+  const pcm=Buffer.alloc(640,42);
+  radioA.ws.send(pcm);
+  await new Promise(resolve=>setTimeout(resolve,80));
+  assert.equal(radioB.buffer.length,0);
+
   radioA.send({type:'floor-request'});
   assert.equal((await radioA.wait('floor-granted')).type,'floor-granted');
   assert.equal((await radioB.wait('floor')).name,'Alice');
+  radioA.ws.send(pcm);
+  const delivered=await radioB.waitAudio();
+  assert.equal(delivered.byteLength,640);
+  assert.deepEqual(delivered,pcm);
+  // Participante que não possui o canal não pode injetar voz.
+  radioB.ws.send(Buffer.alloc(640,99));
+  await new Promise(resolve=>setTimeout(resolve,80));
+  assert.equal(radioA.binaryBuffer?.length||0,0);
+
   radioB.send({type:'floor-request'});
   assert.equal((await radioB.wait('floor-denied')).type,'floor-denied');
   radioA.send({type:'floor-release'});
@@ -149,6 +178,10 @@ test('FlowTalk e gestão de grupos: administrador, revogação, saída e exclus�
   assert.equal(deniedDirectGroup.status,404);
   const html=(await fetch(base+'/app')).status;assert.equal(html,200);
   const appJs=await (await fetch(base+'/app.js')).text();
-  assert.match(appJs,/RTCPeerConnection|groupManageDialog/);
+  assert.match(appJs,/AudioWorkletNode|groupManageDialog/);
   assert.doesNotMatch(appJs,/radioPieces|new Blob\(radioPieces/);
+  const worklet=await (await fetch(base+'/talk-worklet.js')).text();
+  assert.match(worklet,/vozchat-mic-stream/);
+  assert.match(worklet,/vozchat-speaker-stream/);
+
 });
