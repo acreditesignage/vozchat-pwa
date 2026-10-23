@@ -90,7 +90,7 @@ async function notifyMembers(room, sender, msg) {
   if(!recipients.size)return;
   const payload=JSON.stringify({
     title: room.directKey ? sender.name : room.name,
-    body: msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':'Nova mensagem',
+    body: msg.type==='flowtalk'?'📻 Chamado no FlowTalk':msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':'Nova mensagem',
     roomId:room.id,
     url:'/app?open='+encodeURIComponent(room.id),
     tag:'vozchat-'+room.id,
@@ -157,8 +157,21 @@ function allocatePublicId(){
   return String(n);
 }
 function safeUser(u) { return {id:u.id,name:u.name,username:u.username,publicId:u.publicId}; }
-function roomView(r,uid) { const last=[...db.messages].reverse().find(m=>m.roomId===r.id); const peer=r.directKey?db.users.find(u=>u.id!==uid&&r.members.includes(u.id)):null; return {id:r.id,name:peer?.name||r.name,peerId:peer?.publicId||null,isDirect:!!r.directKey,createdAt:r.createdAt,members:r.members.length,owner:r.owner,inviteUrl:r.directKey?null:`/app?join=${encodeURIComponent(r.id)}.${r.secret}`,last:last?{type:last.type,text:last.text||'',fileName:last.fileName||'',createdAt:last.createdAt,senderName:last.senderName}:null}; }
+function roomView(r,uid) { const last=[...db.messages].reverse().find(m=>m.roomId===r.id); const peer=r.directKey?db.users.find(u=>u.id!==uid&&r.members.includes(u.id)):null; return {id:r.id,name:peer?.name||r.name,peerId:peer?.publicId||null,isDirect:!!r.directKey,isOwner:r.owner===uid,createdAt:r.createdAt,members:r.members.length,owner:r.owner,inviteUrl:r.directKey?null:`/app?join=${encodeURIComponent(r.id)}.${r.secret}`,last:last?{type:last.type,text:last.text||'',fileName:last.fileName||'',createdAt:last.createdAt,senderName:last.senderName}:null}; }
 function member(uid,rid) { const r=db.rooms.find(r=>r.id===rid); return r && r.members.includes(uid) ? r : null; }
+function groupMembers(r) {
+  return r.members.map(uid=>db.users.find(u=>u.id===uid)).filter(Boolean)
+    .map(u=>({name:u.name,publicId:u.publicId,isOwner:r.owner===u.id}));
+}
+function publishGroupChange(r,removed=[]) {
+  for(const uid of r.members)push([uid],'room',roomView(r,uid));
+  for(const uid of removed)push([uid],'room-removed',{roomId:r.id});
+}
+async function purgeGroupMedia(audios,files) {
+  const ids=[...audios.map(a=>a.id),...files.map(f=>f.id)];
+  if(pool&&ids.length)await pool.query('DELETE FROM vozchat_blobs WHERE id=ANY($1::uuid[])',[ids]);
+  if(!pool)await Promise.all([...audios.map(a=>path.join(AUDIO,a.filename)),...files.map(f=>path.join(FILES,f.storedName))].map(p=>fsp.unlink(p).catch(()=>{})));
+}
 async function sendMsg(room,user,type,extra) { const msg={id:id(),roomId:room.id,senderId:user.id,senderName:user.name,type,createdAt:new Date().toISOString(),...extra}; db.messages.push(msg); await save(); push(room.members,'message',msg); void notifyMembers(room,user,msg).catch(e=>console.warn('Push error',e?.message)); for(const uid of room.members)push([uid],'room',roomView(room,uid)); return msg; }
 function contentType(ext) { return {'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.webmanifest':'application/manifest+json','.ico':'image/x-icon'}[ext]||'application/octet-stream'; }
 async function staticFile(req,res,url) { const name=url.pathname==='/'||url.pathname==='/app' ? '/index.html' : url.pathname; const decoded=decodeURIComponent(name); const absolute=path.resolve(STATIC,'.'+decoded); if(!(absolute===STATIC || absolute.startsWith(STATIC+path.sep))) return error(res,403,'Acesso negado.'); let st; try{st=await fsp.stat(absolute);}catch{return error(res,404,'Não encontrado.');} if(!st.isFile()) return error(res,404,'Não encontrado.'); res.writeHead(200,{'Content-Type':contentType(path.extname(absolute)),'Cache-Control':decoded==='/index.html'?'no-cache':'public, max-age=3600','X-Content-Type-Options':'nosniff'}); fs.createReadStream(absolute).pipe(res); }
@@ -244,8 +257,59 @@ async function api(req,res,url) {
     return json(res,wasNew?201:200,{room:roomView(room,u.id),contact:safeUser(target)});
   }
   if(method==='POST'&&p==='/api/rooms') { const input=JSON.parse((await body(req)).toString('utf8')); const name=String(input.name||'').trim(); if(name.length<2||name.length>60) return error(res,400,'Nome da conversa deve ter de 2 a 60 caracteres.'); const r={id:id(),secret:rand(24),owner:u.id,name,members:[u.id],createdAt:new Date().toISOString()}; db.rooms.push(r); await save(); const view=roomView(r,u.id); push([u.id],'room',view); return json(res,201,{room:view}); }
-  if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){r.members.push(u.id);await save();for(const uid of r.members)push([uid],'room',roomView(r,uid));} return json(res,200,{room:roomView(r,u.id)}); }
-  const match=p.match(/^\/api\/rooms\/([0-9a-f-]{36})\/(messages|audio|files)$/);
+  if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&!r.directKey&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){r.members.push(u.id);await save();for(const uid of r.members)push([uid],'room',roomView(r,uid));} return json(res,200,{room:roomView(r,u.id)}); }
+  const groupMatch=p.match(/^\/api\/rooms\/([0-9a-f-]{36})(?:\/(members|leave))?(?:\/([1-9][0-9]{1,79}))?$/);
+  if(groupMatch) {
+    const rid=groupMatch[1],action=groupMatch[2]||'',targetId=groupMatch[3];
+    const r=member(u.id,rid);
+    if(!r || r.directKey) return error(res,404,'Grupo não encontrado.');
+    if(method==='GET'&&action==='members'&&!targetId)
+      return json(res,200,{room:roomView(r,u.id),members:groupMembers(r)});
+    if(method==='POST'&&action==='members'&&!targetId) {
+      if(r.owner!==u.id)return error(res,403,'Somente quem criou o grupo pode adicionar participantes.');
+      const input=JSON.parse((await body(req)).toString('utf8'));
+      const publicId=String(input.publicId||'').trim();
+      if(!/^[1-9][0-9]{1,79}$/.test(publicId))return error(res,400,'Informe um ID válido.');
+      const target=db.users.find(x=>x.publicId===publicId);
+      if(!target)return error(res,404,'Pessoa não encontrada.');
+      if(r.members.includes(target.id))return error(res,409,'Essa pessoa já participa do grupo.');
+      if(r.members.length>=100)return error(res,409,'Limite de 100 participantes por grupo.');
+      r.members.push(target.id);await save();
+      publishGroupChange(r);
+      return json(res,201,{room:roomView(r,u.id),members:groupMembers(r)});
+    }
+    if(method==='DELETE'&&action==='members'&&targetId) {
+      if(r.owner!==u.id)return error(res,403,'Somente quem criou o grupo pode remover participantes.');
+      const target=db.users.find(x=>x.publicId===targetId);
+      if(!target||!r.members.includes(target.id))return error(res,404,'Participante não encontrado.');
+      if(target.id===r.owner)return error(res,400,'O criador não pode se remover. Exclua o grupo se necessário.');
+      r.members=r.members.filter(uid=>uid!==target.id);
+      r.secret=rand(24); // revoga convites antigos que o participante removido possa ter guardado
+      await save();publishGroupChange(r,[target.id]);
+      return json(res,200,{room:roomView(r,u.id),members:groupMembers(r)});
+    }
+    if(method==='POST'&&action==='leave'&&!targetId) {
+      if(r.owner===u.id)return error(res,409,'O criador não pode sair. Exclua o grupo se necessário.');
+      r.members=r.members.filter(uid=>uid!==u.id);
+      r.secret=rand(24);
+      await save();publishGroupChange(r,[u.id]);
+      return json(res,200,{ok:true});
+    }
+    if(method==='DELETE'&&!action) {
+      if(r.owner!==u.id)return error(res,403,'Somente o criador pode excluir o grupo.');
+      const recipients=[...r.members],audios=db.audios.filter(a=>a.roomId===rid),files=db.files.filter(f=>f.roomId===rid);
+      db.rooms=db.rooms.filter(g=>g.id!==rid);
+      db.messages=db.messages.filter(m=>m.roomId!==rid);
+      db.audios=db.audios.filter(a=>a.roomId!==rid);
+      db.files=db.files.filter(f=>f.roomId!==rid);
+      await save();
+      for(const uid of recipients)push([uid],'room-removed',{roomId:rid});
+      await purgeGroupMedia(audios,files).catch(e=>console.warn('Falha na limpeza de mídia de grupo',e.message));
+      return json(res,200,{ok:true});
+    }
+    return error(res,405,'Operação de grupo não permitida.');
+  }
+  const match=p.match(/^\/api\/rooms\/([0-9a-f-]{36})\/(messages|audio|flowtalk|files)$/);
   if(match) {
     const rid=match[1]; const r=member(u.id,rid); if(!r) return error(res,403,'Você não participa desta conversa.');
     if(method==='GET'&&match[2]==='messages') { const all=db.messages.filter(m=>m.roomId===rid); return json(res,200,{messages:all.slice(-300)}); }
@@ -268,14 +332,17 @@ async function api(req,res,url) {
       const message=await sendMsg(r,u,kind,{fileId,fileName:originalName,fileSize:bytes.length,fileMime:mime});
       return json(res,201,{message});
     }
-    if(method==='POST'&&match[2]==='audio') {
+    if(method==='POST'&&(match[2]==='audio'||match[2]==='flowtalk')) {
       const mime=String(req.headers['content-type']||'').split(';')[0].toLowerCase();
       const extensions={'audio/webm':'webm','audio/mp4':'m4a','audio/ogg':'ogg','audio/mpeg':'mp3','audio/wav':'wav','audio/x-m4a':'m4a','audio/aac':'aac'};
       if(!extensions[mime]) return error(res,415,'Formato de áudio não suportado.');
-      const raw=await body(req,12*1024*1024); if(raw.length<100) return error(res,400,'Áudio vazio ou muito curto.');
+      const isFlowTalk=match[2]==='flowtalk';
+      const duration=Math.max(0,Number(req.headers['x-audio-duration'])||0);
+      if(isFlowTalk&&duration>46)return error(res,413,'Chamados FlowTalk devem ter até 45 segundos.');
+      const raw=await body(req,isFlowTalk?8*1024*1024:12*1024*1024); if(raw.length<100) return error(res,400,'Áudio vazio ou muito curto.');
       const aid=id(),filename=`${aid}.${extensions[mime]}`; await writeBlob(aid,path.join(AUDIO,filename),raw);
       db.audios.push({id:aid,filename,mime,roomId:rid,bytes:raw.length});
-      return json(res,201,{message:await sendMsg(r,u,'audio',{audioId:aid,duration:Math.min(600,Number(req.headers['x-audio-duration'])||0)})});
+      return json(res,201,{message:await sendMsg(r,u,isFlowTalk?'flowtalk':'audio',{audioId:aid,duration:Math.min(isFlowTalk?45:600,duration)})});
     }
   }
   const fileMatch=p.match(/^\/api\/files\/([0-9a-f-]{36})$/);

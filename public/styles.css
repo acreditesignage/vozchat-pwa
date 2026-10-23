@@ -46,3 +46,33 @@
 .notification-secondary:hover{background:#eeeaff}
 #notificationsButton{font-size:20px;line-height:1.4}
 @media(max-width:520px){.header-actions{gap:2px}.notification-choice{padding:13px 12px}}
+
+/* FlowTalk: rádio de apertar para falar e gerenciamento de grupos */
+.chat-top{gap:8px}
+.chat-top .outline-button{white-space:nowrap}
+.flowtalk-active{background:#f1edff!important;color:#5c49cb!important;border-color:#b4a9fc!important}
+.flowtalk-panel{display:flex;flex-direction:column;align-items:center;gap:10px;padding:13px 14px 14px;background:#f8f7ff;border-bottom:1px solid #e8e5fc}
+.flowtalk-indicator{display:flex;flex-direction:column;gap:5px;text-align:center}
+.flowtalk-indicator strong{font-size:14px;color:#5140c6}
+.flowtalk-indicator span{font-size:11px;color:#6c738b;min-height:15px}
+.flowtalk-hold{min-width:215px;min-height:57px;border:0;border-radius:24px;background:#755ff2;color:white;font-weight:800;font-size:15px;box-shadow:0 7px 18px #705cf744;touch-action:none;-webkit-user-select:none;user-select:none}
+.flowtalk-hold.talking{background:#ec536b;box-shadow:0 0 0 6px #ed536b25,0 8px 18px #dc2e4c3b;transform:scale(1.025)}
+.flowtalk-autoplay{display:flex;align-items:center;gap:8px;color:#626783;font-size:12px;cursor:pointer}
+.flowtalk-autoplay input{accent-color:#755ff2}
+.group-members-list{display:flex;flex-direction:column;max-height:275px;overflow:auto;border:1px solid #eceaf5;border-radius:12px;margin:12px 0}
+.group-member{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 13px;border-bottom:1px solid #f0eef8}
+.group-member:last-child{border-bottom:0}
+.group-member-info{display:flex;flex-direction:column;gap:4px;min-width:0}
+.group-member-info strong{font-size:13px;overflow:hidden;text-overflow:ellipsis}
+.group-member-info small{color:#8790a4;font-size:11px}
+.group-remove{color:#bd3551;background:#fff0f3;border:1px solid #ffd3dc;border-radius:10px;padding:8px 10px;font-weight:700;font-size:12px}
+.group-danger{width:100%;padding:12px;border:1px solid #f7c3cd;border-radius:12px;background:#fff2f4;color:#b82e4d;font-weight:800;margin-top:12px}
+.group-add-form{display:flex;flex-direction:column;gap:10px;margin:8px 0}
+.group-dialog .upload-tip{margin-top:15px}
+@media(max-width:600px){
+ .chat-top{gap:5px}
+ .chat-top .outline-button{font-size:12px;padding:7px 9px}
+ .chat-top .outline-button span{display:none}
+ .flowtalk-panel{padding:9px 10px}
+ .flowtalk-hold{min-height:53px}
+}
