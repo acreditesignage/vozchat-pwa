@@ -30,7 +30,23 @@ fs.mkdirSync(AUDIO, { recursive: true });
 fs.mkdirSync(FILES, { recursive: true });
 const DATA_FILE = path.join(DATA, 'database.json');
 const POSTGRES_URL = process.env.DATABASE_URL || process.env.VOZCHAT_DATABASE_URL;
-const LIVEKIT_URL = (process.env.LIVEKIT_URL || '').trim();
+function normalizeLivekitUrl(value){
+  // LiveKit Cloud can present a host, HTTPS URL, or WSS URL. Canonicalise harmless variants.
+  const raw=String(value||'').trim().replace(/^['"]|['"]$/g,'').trim();
+  if(!raw)return '';
+  let candidate=raw;
+  if(!/^[a-z][a-z\d+.-]*:\/\//i.test(candidate))candidate='wss://'+candidate;
+  candidate=candidate.replace(/^https?:\/\//i,'wss://').replace(/^ws:\/\//i,'wss://');
+  try{
+    const uri=new URL(candidate);
+    if(uri.protocol!=='wss:'||!uri.hostname||uri.username||uri.password||uri.search||uri.hash||uri.pathname!=='/')return '';
+    if(!/^[a-z0-9.-]+$/i.test(uri.hostname))return '';
+    // A dashboard link isn't the LiveKit media endpoint.
+    if(uri.hostname==='cloud.livekit.io')return '';
+    return 'wss://'+uri.host;
+  }catch{return '';}
+}
+const LIVEKIT_URL = normalizeLivekitUrl(process.env.LIVEKIT_URL);
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || '';
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || '';
 const livekitConfigured = /^wss:\/\/[^\s/]+$/i.test(LIVEKIT_URL) && !!LIVEKIT_API_KEY && !!LIVEKIT_API_SECRET;
@@ -578,10 +594,10 @@ server.on('upgrade',(req,socket,head)=>{
 
 
 console.log('Voice Flow / LiveKit configuration: '+(livekitConfigured?'configured':'not configured'));
-console.log('Voice Flow / LiveKit diagnostics: '+
-  'URL='+(LIVEKIT_URL?(/^wss:\/\/[^\s/]+$/i.test(LIVEKIT_URL)?'valid':'invalid_format'):'missing')+
-  ' KEY='+(LIVEKIT_API_KEY?'present':'missing')+
-  ' SECRET='+(LIVEKIT_API_SECRET?'present':'missing'));
+console.log('Voice Flow / LiveKit diagnostics: URL='+(
+  LIVEKIT_URL?'valid_or_normalized':(process.env.LIVEKIT_URL?'invalid_format':'missing')
+)+' KEY='+(LIVEKIT_API_KEY?'present':'missing')+
+' SECRET='+(LIVEKIT_API_SECRET?'present':'missing'));
 if(livekitConfigured){
   Promise.race([
     livekitRoomService.listRooms().then(()=>true),
