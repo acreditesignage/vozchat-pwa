@@ -212,7 +212,7 @@ function limitContactSearch(userId){
 function tooMany(ip) { const now=Date.now(); let a=loginAttempts.get(ip)||[]; a=a.filter(t=>now-t<15*60*1000); a.push(now); loginAttempts.set(ip,a); return a.length>25; }
 async function api(req,res,url) {
   const p=url.pathname, method=req.method;
-  if(method==='GET' && p==='/api/health') return json(res,200,{ok:true,service:'vozchat',storage:pool?'postgres':'local',time:new Date().toISOString()});
+  if(method==='GET' && p==='/api/health') return json(res,200,{ok:true,service:'vozchat',storage:pool?'postgres':'local',livekit:livekitConfigured?'configured':'not_configured',time:new Date().toISOString()});
   if(method==='POST' && (p==='/api/register'||p==='/api/login')) {
     const input=JSON.parse((await body(req)).toString('utf8'));
     let username=String(input.username||'').trim().toLowerCase(); const password=String(input.password||'');
@@ -575,5 +575,16 @@ server.on('upgrade',(req,socket,head)=>{
     talkWss.handleUpgrade(req,socket,head,ws=>talkWss.emit('connection',ws,req,{rid,user}));
   }catch{socket.destroy();}
 });
+
+
+console.log('Voice Flow / LiveKit configuration: '+(livekitConfigured?'configured':'not configured'));
+if(livekitConfigured){
+  Promise.race([
+    livekitRoomService.listRooms().then(()=>true),
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),7500))
+  ]).then(()=>console.log('Voice Flow / LiveKit API: connection OK'))
+    .catch(err=>console.warn('Voice Flow / LiveKit API: connection failed ('+
+      (err?.status||err?.statusCode||err?.name||'unknown')+')'));
+}
 
 server.listen(PORT,'0.0.0.0',()=>console.log('VozChat ativo na porta '+PORT+' | storage: '+(pool?'PostgreSQL':DATA)));
