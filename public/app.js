@@ -316,7 +316,8 @@ function resetRadioSpeaker(session){
   session.speakerNode?.port.postMessage({type:'reset'});
 }
 function stopLiveRadio(){
-  if(livekitController){livekitController.close();livekitController=null;}
+  talkPointerId=null;talkKeyboardHeld=false;
+  if(livekitController){livekitController.release();livekitController.close();livekitController=null;}
   const session=liveRadio;
   if(!session)return;
   liveRadio=null;session.holding=false;session.granted=false;
@@ -496,22 +497,51 @@ async function openLiveRadio(){
   }
 }
 $('#flowtalkToggle').addEventListener('click',()=>{void openLiveRadio();});
+// PTT físico: o fim do toque SEMPRE encerra o LiveKit e o rádio antigo.
+let talkPointerId=null;
+let talkKeyboardHeld=false;
+function releasePushToTalk(){
+  if(livekitController)livekitController.release();
+  if(liveRadio?.holding)stopRadioTalk();
+}
+function endTalkHold(){
+  if(talkPointerId===null&&!talkKeyboardHeld)return;
+  talkPointerId=null;
+  talkKeyboardHeld=false;
+  releasePushToTalk();
+}
 talkButton.addEventListener('pointerdown',e=>{
-  if(e.button!==0)return;
+  if(e.button!==0||talkButton.disabled||talkPointerId!==null)return;
   e.preventDefault();
+  talkPointerId=e.pointerId;
   try{talkButton.setPointerCapture(e.pointerId);}catch{}
   startRadioTalk();
 });
 for(const name of ['pointerup','pointercancel','lostpointercapture']){
-  talkButton.addEventListener(name,()=>{if(liveRadio?.holding)stopRadioTalk();});
+  talkButton.addEventListener(name,e=>{
+    if(talkPointerId===e.pointerId)endTalkHold();
+  });
 }
+// Backup para Safari e Android: soltar o dedo fora do botão não deixa o canal preso.
+for(const name of ['pointerup','pointercancel']){
+  document.addEventListener(name,e=>{
+    if(talkPointerId!==null&&e.pointerId===talkPointerId)endTalkHold();
+  },{capture:true});
+}
+document.addEventListener('touchend',()=>{if(talkPointerId!==null)endTalkHold();},{passive:true});
+document.addEventListener('touchcancel',()=>{if(talkPointerId!==null)endTalkHold();},{passive:true});
 talkButton.addEventListener('keydown',e=>{
-  if(e.repeat)return;
-  if(e.code==='Space'||e.code==='Enter'){e.preventDefault();startRadioTalk();}
+  if(e.repeat||talkKeyboardHeld)return;
+  if(e.code==='Space'||e.code==='Enter'){
+    e.preventDefault();talkKeyboardHeld=true;startRadioTalk();
+  }
 });
-talkButton.addEventListener('keyup',e=>{
-  if(e.code==='Space'||e.code==='Enter'){e.preventDefault();stopRadioTalk();}
+document.addEventListener('keyup',e=>{
+  if(talkKeyboardHeld&&(e.code==='Space'||e.code==='Enter')){
+    e.preventDefault();endTalkHold();
+  }
 });
+window.addEventListener('blur',()=>{endTalkHold();releasePushToTalk();});
 $('#flowtalkAutoPlay').addEventListener('change',()=>{
   if(livekitController){livekitController.listening($('#flowtalkAutoPlay').checked);return;}
   const session=liveRadio;
@@ -537,10 +567,12 @@ listenButton.addEventListener('click',async()=>{
   }catch{toast('Falha ao ativar alto-falante. Confira o volume do aparelho.');}
 });
 document.addEventListener('visibilitychange',()=>{
-  if(document.hidden&&(liveRadio?.holding||livekitController))stopRadioTalk();
-  else if(!document.hidden&&liveRadio?.ctx?.state==='suspended')void liveRadio.ctx.resume().catch(()=>{});
+  if(document.hidden){endTalkHold();releasePushToTalk();}
+  else if(liveRadio?.ctx?.state==='suspended')void liveRadio.ctx.resume().catch(()=>{});
 });
-window.addEventListener('pagehide',()=>stopLiveRadio());
+window.addEventListener('pagehide',()=>{
+  endTalkHold();releasePushToTalk();stopLiveRadio();
+});
 
 function newConversation(){$('#newRoomName').value='';openDialog('roomDialog');setTimeout(()=>$('#newRoomName').focus(),100);}
 $('#newRoom').addEventListener('click',newConversation);$('#emptyCreate').addEventListener('click',newConversation);

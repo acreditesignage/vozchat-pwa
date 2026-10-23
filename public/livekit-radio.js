@@ -8,7 +8,7 @@ export async function startLiveKitRadio({roomId,api,notify}) {
   const toggle = $('#flowtalkToggle'), panel = $('#flowtalkPanel');
   const button = $('#flowtalkHold'), speakers = $('#flowtalkAudioOutputs');
   const listen = $('#flowtalkListen'), audioToggle = $('#flowtalkAutoPlay');
-  let alive=true,holding=false,granted=false,ready=false,clientId=null;
+  let alive=true,holding=false,granted=false,ready=false,clientId=null,pressEpoch=0;
   let speakerId=null,peerCount=0,speakerName=null,ws=null,microphone=null,published=false,micPromise=null;
   let room=null;
   const receiveAudio=new Map();
@@ -22,9 +22,17 @@ export async function startLiveKitRadio({roomId,api,notify}) {
     if(occupied)status('📻 '+(speakerName||'Outra pessoa')+' está falando');
     else if(!holding)status('Canal livre · segure para falar');
   }
+  // Silenciar imediatamente o track físico, sem aguardar a Promise do SDK.
+  function silenceMicrophone(){
+    try{
+      if(microphone?.mediaStreamTrack)microphone.mediaStreamTrack.enabled=false;
+      if(microphone)void microphone.mute().catch(()=>{});
+    }catch{}
+  }
   function close(){
-    if(!alive)return;alive=false;holding=false;granted=false;
-    try{microphone?.mute();microphone?.stop();}catch{}
+    if(!alive)return;alive=false;holding=false;granted=false;pressEpoch++;
+    silenceMicrophone();
+    try{microphone?.stop();}catch{}
     try{ws?.close();}catch{}
     try{room?.disconnect();}catch{}
     for(const audio of receiveAudio.values()){audio.pause();audio.remove();}
@@ -66,17 +74,20 @@ export async function startLiveKitRadio({roomId,api,notify}) {
     }
     return micPromise;
   }
-  async function startSpeaking(){
+  async function startSpeaking(epoch){
+    const active=()=>alive&&holding&&granted&&pressEpoch===epoch;
     try{
       const track=await ensureMicrophone();
-      if(!track||!alive||!holding||!granted)return;
+      if(!track||!active()){if(!holding||!granted)silenceMicrophone();return;}
       if(!published){
         await room.localParticipant.publishTrack(track,{source:Track.Source.Microphone});
         published=true;
       }
-      if(!alive||!holding||!granted){void track.mute();return;}
+      if(!active()){if(!holding||!granted)silenceMicrophone();return;}
       await track.unmute();
-      if(!alive||!holding||!granted){void track.mute();return;}
+      // Publicar e desmutar são assíncronos: se o usuário soltou no meio,
+      // não reativar o microfone depois do pointerup.
+      if(!active()){if(!holding||!granted)silenceMicrophone();return;}
       button.classList.add('talking');button.textContent='🔴 NO AR · solte para parar';
       status('🔴 TRANSMITINDO VOZ AO VIVO');
     }catch(err){
@@ -88,10 +99,12 @@ export async function startLiveKitRadio({roomId,api,notify}) {
   }
   function press(){
     if(!alive||!ready||holding||button.disabled)return;
+    pressEpoch++;
     holding=true;granted=false;
-    // Iniciar pedido de microfone ANTES de qualquer await/evento WebSocket.
+    // O pedido do microfone começa no gesto do usuário.
     void ensureMicrophone().catch(err=>{
-      if(!alive)return;notify(err?.name==='NotAllowedError'?'Autorize o microfone no aparelho.':'Falha ao abrir microfone.');
+      if(!alive)return;
+      notify(err?.name==='NotAllowedError'?'Autorize o microfone no aparelho.':'Falha ao abrir microfone.');
       release();
     });
     status('Solicitando canal...');
@@ -99,10 +112,13 @@ export async function startLiveKitRadio({roomId,api,notify}) {
   }
   function release(){
     if(!alive)return;
+    pressEpoch++;
     holding=false;granted=false;
-    if(microphone)void microphone.mute();
+    silenceMicrophone();
     send({type:'floor-release'});
-    button.classList.remove('talking');button.textContent='🎙 Segure para falar';ui();
+    button.classList.remove('talking');
+    button.textContent='🎙 Segure para falar';
+    ui();
   }
   panel.hidden=false;button.disabled=true;
   toggle.classList.add('flowtalk-active');toggle.setAttribute('aria-pressed','true');
@@ -120,7 +136,7 @@ export async function startLiveKitRadio({roomId,api,notify}) {
       listen.hidden=room.canPlaybackAudio; if(!room.canPlaybackAudio)status('Toque em 🔊 para liberar o áudio.');
     });
     room.on(RoomEvent.ParticipantConnected,()=>{});
-    room.on(RoomEvent.Disconnected,()=>{if(alive){status('Rádio desconectado da rede.');button.disabled=true;}});
+    room.on(RoomEvent.Disconnected,()=>{if(alive){release();status('Rádio desconectado da rede.');button.disabled=true;}});
     await room.connect(tokenResponse.url,tokenResponse.token,{autoSubscribe:true});
     if(!alive){room.disconnect();return {close,press,release,enableAudio,listening};}
     // Usar a mesma autenticação de sessão do VozChat para controlar uma única pessoa no ar.
@@ -140,12 +156,12 @@ export async function startLiveKitRadio({roomId,api,notify}) {
         speakerId=msg.clientId||null;speakerName=msg.name||null;ui();
       }else if(msg.type==='floor-granted'){
         if(!holding){send({type:'floor-release'});return;}
-        granted=true;void startSpeaking();
+        granted=true;void startSpeaking(pressEpoch);
       }else if(msg.type==='floor-denied'){
-        holding=false;granted=false;status('O canal está ocupado. Aguarde sua vez.');
+        release();status('O canal está ocupado. Aguarde sua vez.');
       }
     };
-    ws.onclose=()=>{if(alive){status('Conexão do rádio perdida. Feche e reabra o FlowTalk.');button.disabled=true;}};
+    ws.onclose=()=>{if(alive){release();status('Conexão do rádio perdida. Feche e reabra o FlowTalk.');button.disabled=true;}};
     ws.onerror=()=>{if(alive)status('Não foi possível manter o canal de rádio.');};
     status('Conectado ao LiveKit. Aguardando o canal...');
   }catch(err){
