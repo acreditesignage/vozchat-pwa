@@ -56,3 +56,69 @@ test('botão de parada de emergência e limite de transmissão',()=>{
   assert.match(source,/const MAX_TALK_MS=60000;/);
   assert.match(source,/Transmissão encerrada por segurança após 60 segundos/);
 });
+
+
+function pttFixture(){
+  const app=readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
+  const start=app.indexOf('let talkPointerId=null;');
+  const end=app.indexOf("talkButton.addEventListener('keydown'",start);
+  assert.ok(start>=0 && end>start, 'bloco PTT deve existir');
+  const events={};
+  const node=name=>({
+    disabled:false,hidden:true,
+    addEventListener(type,fn){(events[name+':'+type]??=[]).push(fn);},
+    setPointerCapture(){},
+    getBoundingClientRect(){return {left:0,top:0,right:180,bottom:80};}
+  });
+  const button=node('button'),doc=node('document'),stop=node('stop');
+  let held=false,presses=0,releases=0,shutdowns=0;
+  const context={
+    talkButton:button,talkStop:stop,document:doc,
+    livekitController:{release(){releases++;held=false;},isHolding(){return held;}},
+    liveRadio:null,stopRadioTalk(){},stopLiveRadio(){shutdowns++;},
+    startRadioTalk(){presses++;held=true;},toast(){},
+    setTimeout(){return 1;},clearTimeout(){}
+  };
+  createContext(context);
+  runInContext(app.slice(start,end),context);
+  const fire=(name,type,event={})=>{
+    for(const handler of events[name+':'+type]||[]){
+      handler({button:0,pointerId:1,preventDefault(){},changedTouches:[],touches:[],...event});
+    }
+  };
+  return {fire,stats:()=>({held,presses,releases,shutdowns}),stop};
+}
+test('Safari: pointerdown antes de touchstart é apenas um toque e para em pointerup',()=>{
+  const a=pttFixture();
+  a.fire('button','pointerdown',{pointerId:12});
+  a.fire('button','touchstart',{changedTouches:[{identifier:88}]});
+  assert.equal(a.stats().presses,1);
+  assert.equal(a.stats().held,true);
+  a.fire('button','pointerup',{pointerId:12});
+  assert.equal(a.stats().held,false);
+  assert.equal(a.stats().releases,1);
+  a.fire('document','touchend',{changedTouches:[{identifier:88}],touches:[]});
+  assert.equal(a.stats().releases,1);
+});
+test('Safari: touchstart antes de pointerdown não desliga a fala prematuramente',()=>{
+  const a=pttFixture();
+  a.fire('button','touchstart',{changedTouches:[{identifier:7}]});
+  assert.equal(a.stats().presses,1);
+  a.fire('button','pointerdown',{pointerId:9});
+  assert.equal(a.stats().held,true);
+  assert.equal(a.stats().presses,1);
+  assert.equal(a.stats().releases,0);
+  a.fire('document','touchend',{changedTouches:[{identifier:7}],touches:[]});
+  assert.equal(a.stats().held,false);
+  assert.equal(a.stats().releases,1);
+  a.fire('document','pointerup',{pointerId:9});
+  assert.equal(a.stats().releases,1);
+});
+test('Safari: botão PARAR TRANSMISSÃO desliga independentemente do ponteiro',()=>{
+  const a=pttFixture();
+  a.fire('button','touchstart',{changedTouches:[{identifier:42}]});
+  a.fire('stop','click');
+  assert.equal(a.stats().held,false);
+  assert.equal(a.stats().shutdowns,1);
+  assert.equal(a.stats().releases>=1,true);
+});

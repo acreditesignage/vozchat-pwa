@@ -536,15 +536,18 @@ talkStop.addEventListener('click',()=>{
 talkButton.addEventListener('pointerdown',e=>{
   if(e.button!==0||talkButton.disabled)return;
   e.preventDefault();
-  // Alguns iPhones disparam touchstart antes de pointerdown no MESMO toque.
-  // Nesse caso, não interpretar o pointerdown como segundo toque de cancelamento.
-  if(talkTouchId!==null&&talkPointerId===null){
+  if(talkPointerId!==null){
+    // Ponteiro anterior não foi liberado: desligar o transmissor.
+    endTalkHold();releasePushToTalk();return;
+  }
+  if(talkTouchId!==null){
+    // Safari pode enviar touchstart ANTES de pointerdown para o mesmo dedo.
+    // Capturar o ponteiro sem começar nem interromper a fala novamente.
     talkPointerId=e.pointerId;
     try{talkButton.setPointerCapture(e.pointerId);}catch{}
     return;
   }
-  // Se houve perda do evento de soltar no toque ANTERIOR, desliga por segurança.
-  if(talkPointerId!==null||livekitController?.isHolding?.()){
+  if(livekitController?.isHolding?.()){
     endTalkHold();releasePushToTalk();return;
   }
   talkPointerId=e.pointerId;
@@ -565,8 +568,16 @@ for(const name of ['pointerup','pointercancel']){
 // Backup de toque nativo para Safari/WebKit quando pointerup/lostpointercapture falha.
 talkButton.addEventListener('touchstart',e=>{
   if(talkButton.disabled||!e.changedTouches.length)return;
-  if(talkTouchId===null)talkTouchId=e.changedTouches[0].identifier;
+  const touchId=e.changedTouches[0].identifier;
+  if(talkTouchId!==null){
+    // Um segundo toque com o primeiro ainda marcado pode indicar release perdido.
+    if(talkTouchId!==touchId){endTalkHold();releasePushToTalk();}
+    return;
+  }
+  talkTouchId=touchId;
   if(talkPointerId===null&&!talkKeyboardHeld){
+    // O fluxo touch-first deve iniciar uma única vez.
+    if(livekitController?.isHolding?.()){endTalkHold();releasePushToTalk();return;}
     startRadioTalk();startTalkSafetyTimer();
   }
 },{passive:true});
