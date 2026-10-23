@@ -30,6 +30,7 @@ test('soltar o botão sempre encerra LiveKit e rádio antigo',()=>{
   assert.match(source,/for\(const name of \['touchend','touchcancel'\]\)/);
   assert.match(source,/document.addEventListener\('touchmove',/);
   assert.match(source,/talkButton.addEventListener\('touchstart',/);
+  assert.match(source,/if\(talkTouchId!==null&&talkPointerId===null\)\{[\s\S]*?talkPointerId=e.pointerId;[\s\S]*?return;\s*\}/);
   assert.match(source,/if\(talkPointerId!==null\|\|livekitController\?\.isHolding\?\.\(\)\)/);
   assert.match(source,/window.addEventListener\('blur',[\s\S]*?releasePushToTalk\(\)/);
   assert.match(source,/if\(document.hidden\)\{endTalkHold\(\);releasePushToTalk\(\);\}/);

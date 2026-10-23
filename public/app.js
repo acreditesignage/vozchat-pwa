@@ -536,7 +536,14 @@ talkStop.addEventListener('click',()=>{
 talkButton.addEventListener('pointerdown',e=>{
   if(e.button!==0||talkButton.disabled)return;
   e.preventDefault();
-  // Se o iPhone perdeu a soltura anterior, um novo toque SEMPRE desliga.
+  // Alguns iPhones disparam touchstart antes de pointerdown no MESMO toque.
+  // Nesse caso, não interpretar o pointerdown como segundo toque de cancelamento.
+  if(talkTouchId!==null&&talkPointerId===null){
+    talkPointerId=e.pointerId;
+    try{talkButton.setPointerCapture(e.pointerId);}catch{}
+    return;
+  }
+  // Se houve perda do evento de soltar no toque ANTERIOR, desliga por segurança.
   if(talkPointerId!==null||livekitController?.isHolding?.()){
     endTalkHold();releasePushToTalk();return;
   }
