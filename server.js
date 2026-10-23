@@ -9,10 +9,24 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const STATIC = path.join(ROOT, 'public');
 const DATA = process.env.DATA_DIR || path.join(ROOT, 'data');
 const AUDIO = path.join(DATA, 'audio');
+const FILES = path.join(DATA, 'files');
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const ALLOWED_FILES = {
+  '.jpg': ['image/jpeg'], '.jpeg': ['image/jpeg'], '.png': ['image/png'], '.webp': ['image/webp'], '.gif': ['image/gif'],
+  '.heic': ['image/heic', 'image/heif', 'application/octet-stream'], '.heif': ['image/heif', 'image/heic', 'application/octet-stream'],
+  '.mp4': ['video/mp4'], '.mov': ['video/quicktime', 'video/mp4', 'application/octet-stream'], '.webm': ['video/webm'], '.m4v': ['video/x-m4v', 'video/mp4'], '.3gp': ['video/3gpp'],
+  '.pdf': ['application/pdf'], '.txt': ['text/plain'], '.csv': ['text/csv','application/vnd.ms-excel','text/plain'],
+  '.doc': ['application/msword','application/octet-stream'], '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/octet-stream'],
+  '.xls': ['application/vnd.ms-excel','application/octet-stream'], '.xlsx': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/octet-stream'],
+  '.ppt': ['application/vnd.ms-powerpoint','application/octet-stream'], '.pptx': ['application/vnd.openxmlformats-officedocument.presentationml.presentation','application/octet-stream'],
+  '.zip': ['application/zip','application/x-zip-compressed','application/octet-stream'],
+};
+
 const PORT = Number(process.env.PORT || 3000);
 fs.mkdirSync(AUDIO, { recursive: true });
+fs.mkdirSync(FILES, { recursive: true });
 const DATA_FILE = path.join(DATA, 'database.json');
-let db = { users: [], sessions: [], rooms: [], messages: [], audios: [] };
+let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [] };
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) }; } catch (err) { if (err.code !== 'ENOENT') throw err; }
 function save() { const tmp = `${DATA_FILE}.tmp`; fs.writeFileSync(tmp, JSON.stringify(db)); fs.renameSync(tmp, DATA_FILE); }
 const id = () => crypto.randomUUID();
@@ -30,7 +44,7 @@ function userFrom(req) { const token = cookie(req).vozchat_session; if(!token) r
 function sessionCookie(req,token,maxAge) { const secure = req.socket.encrypted || req.headers['x-forwarded-proto']==='https'; return `vozchat_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure?'; Secure':''}`; }
 function newSession(req,res,u) { const token=rand(36); db.sessions=db.sessions.filter(s=>s.expires>Date.now()).slice(-3000); db.sessions.push({hash:sha(token),uid:u.id,expires:Date.now()+30*86400000}); save(); return sessionCookie(req,token,30*86400); }
 function safeUser(u) { return {id:u.id,name:u.name,username:u.username}; }
-function roomView(r,uid) { const last=[...db.messages].reverse().find(m=>m.roomId===r.id); return {id:r.id,name:r.name,createdAt:r.createdAt,members:r.members.length,owner:r.owner,inviteUrl:`/app?join=${encodeURIComponent(r.id)}.${r.secret}`,last:last?{type:last.type,text:last.text||'',createdAt:last.createdAt,senderName:last.senderName}:null}; }
+function roomView(r,uid) { const last=[...db.messages].reverse().find(m=>m.roomId===r.id); return {id:r.id,name:r.name,createdAt:r.createdAt,members:r.members.length,owner:r.owner,inviteUrl:`/app?join=${encodeURIComponent(r.id)}.${r.secret}`,last:last?{type:last.type,text:last.text||'',fileName:last.fileName||'',createdAt:last.createdAt,senderName:last.senderName}:null}; }
 function member(uid,rid) { const r=db.rooms.find(r=>r.id===rid); return r && r.members.includes(uid) ? r : null; }
 function sendMsg(room,user,type,extra) { const msg={id:id(),roomId:room.id,senderId:user.id,senderName:user.name,type,createdAt:new Date().toISOString(),...extra}; db.messages.push(msg); save(); push(room.members,'message',msg); push(room.members,'room',roomView(room,user.id)); return msg; }
 function contentType(ext) { return {'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.webmanifest':'application/manifest+json','.ico':'image/x-icon'}[ext]||'application/octet-stream'; }
@@ -62,11 +76,29 @@ async function api(req,res,url) {
   if(method==='GET'&&p==='/api/events') { res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-store, must-revalidate','Connection':'keep-alive','X-Accel-Buffering':'no'}); res.write(': connected\n\n'); const set=clients.get(u.id)||new Set(); set.add(res); clients.set(u.id,set); const keep=setInterval(()=>{try{res.write(': ping\n\n');}catch{}},20000); req.on('close',()=>{clearInterval(keep);set.delete(res);if(!set.size)clients.delete(u.id);}); return; }
   if(method==='POST'&&p==='/api/rooms') { const input=JSON.parse((await body(req)).toString('utf8')); const name=String(input.name||'').trim(); if(name.length<2||name.length>60) return error(res,400,'Nome da conversa deve ter de 2 a 60 caracteres.'); const r={id:id(),secret:rand(24),owner:u.id,name,members:[u.id],createdAt:new Date().toISOString()}; db.rooms.push(r); save(); const view=roomView(r,u.id); push([u.id],'room',view); return json(res,201,{room:view}); }
   if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){r.members.push(u.id);save();push(r.members,'room',roomView(r,u.id));} return json(res,200,{room:roomView(r,u.id)}); }
-  const match=p.match(/^\/api\/rooms\/([0-9a-f-]{36})\/(messages|audio)$/);
+  const match=p.match(/^\/api\/rooms\/([0-9a-f-]{36})\/(messages|audio|files)$/);
   if(match) {
     const rid=match[1]; const r=member(u.id,rid); if(!r) return error(res,403,'Você não participa desta conversa.');
     if(method==='GET'&&match[2]==='messages') { const all=db.messages.filter(m=>m.roomId===rid); return json(res,200,{messages:all.slice(-300)}); }
     if(method==='POST'&&match[2]==='messages') { const input=JSON.parse((await body(req)).toString('utf8')); const content=String(input.text||'').trim(); if(!content||content.length>2000) return error(res,400,'Mensagem deve ter de 1 a 2000 caracteres.'); return json(res,201,{message:sendMsg(r,u,'text',{text:content})}); }
+    if(method==='POST'&&match[2]==='files') {
+      const mime=String(req.headers['content-type']||'').split(';')[0].trim().toLowerCase();
+      let originalName;
+      try { originalName=decodeURIComponent(String(req.headers['x-file-name']||'')); }
+      catch { return error(res,400,'Nome de arquivo inválido.'); }
+      originalName=path.basename(originalName).replace(/[\x00-\x1f\x7f]/g,'').slice(0,150);
+      const ext=path.extname(originalName).toLowerCase();
+      if(!originalName || !ALLOWED_FILES[ext] || !ALLOWED_FILES[ext].includes(mime)) return error(res,415,'Tipo de arquivo não permitido. Envie imagens, vídeos, PDF, documentos ou ZIP.');
+      if(Number(req.headers['content-length'])>MAX_FILE_BYTES) return error(res,413,'O arquivo deve ter no máximo 25 MB.');
+      const bytes=await body(req,MAX_FILE_BYTES);
+      if(bytes.length===0) return error(res,400,'Arquivo vazio.');
+      const fileId=id(), storedName=fileId+ext;
+      await fsp.writeFile(path.join(FILES,storedName),bytes,{flag:'wx'});
+      const kind=['.jpg','.jpeg','.png','.webp','.gif','.heic','.heif'].includes(ext) ? 'image' : ['.mp4','.mov','.webm','.m4v','.3gp'].includes(ext) ? 'video' : 'file';
+      db.files.push({id:fileId,storedName,originalName,mime,roomId:rid,bytes:bytes.length,kind});
+      const message=sendMsg(r,u,kind,{fileId,fileName:originalName,fileSize:bytes.length,fileMime:mime});
+      return json(res,201,{message});
+    }
     if(method==='POST'&&match[2]==='audio') {
       const mime=String(req.headers['content-type']||'').split(';')[0].toLowerCase();
       const extensions={'audio/webm':'webm','audio/mp4':'m4a','audio/ogg':'ogg','audio/mpeg':'mp3','audio/wav':'wav','audio/x-m4a':'m4a','audio/aac':'aac'};
@@ -76,6 +108,29 @@ async function api(req,res,url) {
       db.audios.push({id:aid,filename,mime,roomId:rid,bytes:raw.length});
       return json(res,201,{message:sendMsg(r,u,'audio',{audioId:aid,duration:Math.min(600,Number(req.headers['x-audio-duration'])||0)})});
     }
+  }
+  const fileMatch=p.match(/^\/api\/files\/([0-9a-f-]{36})$/);
+  if(method==='GET'&&fileMatch) {
+    const file=db.files.find(f=>f.id===fileMatch[1]);
+    if(!file || !member(u.id,file.roomId)) return error(res,404,'Arquivo não encontrado.');
+    const filepath=path.join(FILES,file.storedName);
+    let stat;try { stat=await fsp.stat(filepath); } catch { return error(res,404,'Arquivo indisponível.'); }
+    // Documentos sempre são baixados. Imagem/vídeo podem aparecer diretamente na conversa.
+    const inline=file.kind==='image'||file.kind==='video';
+    const safeName=file.originalName.replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,100);
+    const disposition=`${inline?'inline':'attachment'}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(file.originalName)}`;
+    const headers={'Content-Type':file.mime==='application/octet-stream'?'application/octet-stream':file.mime,
+      'Content-Disposition':disposition,'Accept-Ranges':'bytes','Cache-Control':'private, no-store'};
+    const range=req.headers.range;
+    if(range) {const m=/^bytes=(\d*)-(\d*)$/.exec(range);if(!m)return error(res,416,'Intervalo inválido.');let start=m[1]?Number(m[1]):0,end=m[2]?Number(m[2]):stat.size-1;
+      if(!m[1]&&m[2]){start=Math.max(0,stat.size-Number(m[2]));end=stat.size-1;}
+      if(start>=stat.size||start>end)return error(res,416,'Intervalo inválido.');
+      end=Math.min(end,stat.size-1);
+      res.writeHead(206,{...headers,'Content-Length':end-start+1,'Content-Range':`bytes ${start}-${end}/${stat.size}`});
+      return fs.createReadStream(filepath,{start,end}).pipe(res);
+    }
+    res.writeHead(200,{...headers,'Content-Length':stat.size});
+    return fs.createReadStream(filepath).pipe(res);
   }
   const audioMatch=p.match(/^\/api\/audio\/([0-9a-f-]{36})$/);
   if(method==='GET'&&audioMatch) {

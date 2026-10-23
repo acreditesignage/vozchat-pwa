@@ -7,7 +7,7 @@ import path from 'node:path';
 import net from 'node:net';
 
 async function unusedPort(){return new Promise(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const port=s.address().port;s.close(()=>resolve(port));});});}
-test('cadastro, chat, privacidade, convite, texto, áudio e PWA',async t=>{
+test('cadastro, chat, privacidade, convite, texto, áudio, fotos, vídeos, arquivos e PWA',async t=>{
   const PORT=await unusedPort(), dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'vozchat-'));
   const server=spawn(process.execPath,['server.js'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,DATA_DIR:dataDir,PORT:String(PORT)},stdio:'pipe'});
   t.after(()=>{server.kill('SIGTERM');fs.rmSync(dataDir,{recursive:true,force:true});});
@@ -39,6 +39,29 @@ test('cadastro, chat, privacidade, convite, texto, áudio e PWA',async t=>{
   const audio=await req('POST',`/api/rooms/${room.id}/audio`,audioBytes,c2,{'Content-Type':'audio/webm','X-Audio-Duration':'4.2'});assert.equal(audio.status,201);
   const play=await req('GET',`/api/audio/${audio.data.message.audioId}`,undefined,c1);assert.equal(play.status,200);assert.equal(play.data.byteLength,240);
   const unauthorized=await req('GET',`/api/audio/${audio.data.message.audioId}`);assert.equal(unauthorized.status,401);
+  const photoBytes=new Uint8Array(1024).fill(32);
+  const photo=await req('POST',`/api/rooms/${room.id}/files`,photoBytes,c1,{'Content-Type':'image/jpeg','X-File-Name':encodeURIComponent('foto da equipe.jpg')});
+  assert.equal(photo.status,201);assert.equal(photo.data.message.type,'image');assert.equal(photo.data.message.fileName,'foto da equipe.jpg');
+  const openPhoto=await req('GET',`/api/files/${photo.data.message.fileId}`,undefined,c2);assert.equal(openPhoto.status,200);assert.equal(openPhoto.data.byteLength,1024);
+  const privatePhoto=await req('GET',`/api/files/${photo.data.message.fileId}`);assert.equal(privatePhoto.status,401);
+  const clip=await req('POST',`/api/rooms/${room.id}/files`,new Uint8Array(1500).fill(3),c2,{'Content-Type':'video/mp4','X-File-Name':'clip.mp4'});
+  assert.equal(clip.status,201);assert.equal(clip.data.message.type,'video');
+  const document=await req('POST',`/api/rooms/${room.id}/files`,new Uint8Array(350).fill(4),c1,{'Content-Type':'application/pdf','X-File-Name':'documento.pdf'});
+  assert.equal(document.status,201);assert.equal(document.data.message.type,'file');
+  const download=await fetch(base+`/api/files/${document.data.message.fileId}`,{headers:{cookie:c2}});
+  assert.match(download.headers.get('content-disposition'),/^attachment/);
+  const partial=await fetch(base+`/api/files/${clip.data.message.fileId}`,{headers:{cookie:c1,range:'bytes=0-99'}});
+  assert.equal(partial.status,206);assert.equal((await partial.arrayBuffer()).byteLength,100);
+  const bad=await req('POST',`/api/rooms/${room.id}/files`,new Uint8Array(250).fill(6),c1,{'Content-Type':'text/html','X-File-Name':'script.html'});assert.equal(bad.status,415);
+  const mimeMismatch=await req('POST',`/api/rooms/${room.id}/files`,new Uint8Array(250).fill(6),c1,{'Content-Type':'text/html','X-File-Name':'file.jpg'});assert.equal(mimeMismatch.status,415);
+  const noLoginUpload=await req('POST',`/api/rooms/${room.id}/files`,photoBytes,undefined,{'Content-Type':'image/jpeg','X-File-Name':'photo.jpg'});assert.equal(noLoginUpload.status,401);
+  const third=await req('POST','/api/register',{name:'Cleo',username:'cleo',password:'senha-forte-789'});assert.equal(third.status,201);
+  const deniedPhoto=await req('GET',`/api/files/${photo.data.message.fileId}`,undefined,third.cookie);assert.equal(deniedPhoto.status,404);
+  const deniedUpload=await req('POST',`/api/rooms/${room.id}/files`,photoBytes,third.cookie,{'Content-Type':'image/jpeg','X-File-Name':'photo.jpg'});assert.equal(deniedUpload.status,403);
+  const roomMessages=await req('GET',`/api/rooms/${room.id}/messages`,undefined,c1);assert.equal(roomMessages.status,200);
+  assert.deepEqual(roomMessages.data.messages.map(x=>x.type),['text','audio','image','video','file']);
+  assert.match(await (await fetch(base+'/app.js')).text(),/emojiList|emojiPicker/);
+  assert.match(await (await fetch(base+'/app')).text(),/cameraInput|fileInput/);
   const logout=await req('POST','/api/logout',undefined,c1);assert.equal(logout.status,200);
   const dead=await req('GET','/api/bootstrap',undefined,c1);assert.equal(dead.status,401);
   const login=await req('POST','/api/login',{username:'ana',password:'senha-forte-123'});assert.equal(login.status,200);

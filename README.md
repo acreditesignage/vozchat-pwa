@@ -1,4 +1,4 @@
-# VozChat — PWA com chat e mensagens de voz
+# VozChat — PWA com chat, fotos, vídeos e mensagens de voz
 
 Aplicativo instalável para iPhone, Android e computador. Chat em tempo real via Server-Sent Events (SSE), envio de textos e áudios com `MediaRecorder`, conversas privadas por convite, conta com senha e histórico persistente.
 
@@ -26,11 +26,15 @@ Acesse http://localhost:3000 em seu computador. Crie duas contas em navegadores 
 - Convites por link aleatório longo; acesso a mensagens e áudios restrito aos membros da conversa.
 - Mensagens de texto e áudio entregues em tempo real, histórico salvo no diretório de dados.
 - Gravação no navegador, player nativo, cancelamento de gravação, duração máxima 90 segundos, 12 MB por áudio.
+- Botão **+**: abrir câmera do celular, escolher imagens, vídeos ou documentos; até cinco arquivos por envio e 25 MB por arquivo.
+- Pré-visualização antes do envio, fotos e vídeos exibidos na conversa, anexos para download apenas por participantes.
+- Seletor de emojis incorporado à barra de mensagem.
 - Layout responsivo, instalação como PWA, shell disponível offline (envio requer rede).
 - API de saúde `/api/health`.
 
 ## Limitações e cuidados
 
+- Arquivos passam por validação de extensão e MIME, mas **não há antivírus automático**. Não abra anexos suspeitos.
 - **Não possui criptografia de ponta a ponta**. O operador do servidor pode acessar conteúdo armazenado.
 - Convites são portadores de acesso: qualquer pessoa com o link pode entrar, então compartilhe somente com participantes confiáveis.
 - Não usar para dados clínicos sensíveis sem revisão de segurança, controle granular de acesso, auditoria, retenção, LGPD e adequação operacional.
