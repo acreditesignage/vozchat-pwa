@@ -183,7 +183,8 @@ test('FlowTalk e gestão de grupos: administrador, revogação, saída e exclus�
   assert.match(appJs,/talk-incoming/);
   assert.doesNotMatch(appJs,/talkButton.disabled=!session.ready\|\|count<1/);
   const workerSource=await (await fetch(base+'/sw.js')).text();
-  assert.match(workerSource,/&talk=1/);
+  assert.match(workerSource,/\/talk\?room=/);
+  assert.match(workerSource,/&join=1/);
 
   assert.doesNotMatch(appJs,/radioPieces|new Blob\(radioPieces/);
   const worklet=await (await fetch(base+'/talk-worklet.js')).text();
