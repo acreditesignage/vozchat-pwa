@@ -14,7 +14,7 @@
 <body>
   <main class="shell">
     <header class="header">
-      <div class="brand"><div class="logo">📻</div><div><b>FlowTalk</b><small>Rádio direto · LiveKit</small></div></div>
+      <div class="brand"><div class="logo" aria-hidden="true"><span class="logo-mic"></span></div><div><b>FlowTalk</b><small>Comunicação instantânea</small></div></div>
       <a href="/app" class="chat-link">Abrir chat ↗</a>
     </header>
     <div id="notice" role="status" aria-live="polite" hidden></div>
@@ -29,31 +29,29 @@
       <a href="/app">Criar uma conta no VozChat</a>
     </section>
     <section id="radioHome" hidden>
-      <div class="intro"><span class="eyebrow">SUA ESTAÇÃO</span><h1>Um toque. Sua voz.</h1>
-        <p>Escolha o grupo ou contato. Depois, mantenha pressionado para falar.</p></div>
+      <div class="intro"><h1>Pronto para falar.</h1><p>Escolha um contato e segure o botão.</p></div>
       <div class="card channel-card">
-        <label for="talkRoom">Canal de rádio</label>
+        <label for="talkRoom">Contato ou grupo</label>
         <select id="talkRoom" aria-label="Escolher contato ou grupo"></select>
-        <p class="hint" id="channelHint">O último canal fica salvo neste aparelho.</p>
         <div class="actions">
-          <button type="button" id="flowtalkToggle" class="primary" aria-pressed="false">📻 Ligar rádio</button>
+          <button type="button" id="flowtalkToggle" class="primary" aria-pressed="false">Conectar</button>
           <button type="button" id="notifyButton" class="secondary">🔔 Alertas</button>
         </div>
       </div>
       <section id="flowtalkPanel" class="card radio-panel" hidden>
         <div class="flowtalk-indicator">
-          <strong>📻 FlowTalk · rádio ao vivo</strong>
+          <strong>FlowTalk · ao vivo</strong>
           <span id="flowtalkStatus" role="status" aria-live="polite">Conectando...</span>
           <small id="flowtalkParticipants">Rádio disponível</small>
         </div>
-        <button id="flowtalkHold" class="flowtalk-hold" type="button" aria-label="Pressione e segure para falar" disabled>🎙 Segure para falar</button>
+        <button id="flowtalkHold" class="flowtalk-hold" type="button" aria-label="Pressione e segure para falar" disabled>Segure para falar</button>
         <button id="flowtalkStop" class="flowtalk-stop" type="button" hidden>⏹ PARAR TRANSMISSÃO</button>
         <label class="listening"><input id="flowtalkAutoPlay" type="checkbox" checked> Ouvir voz ao vivo</label>
         <button id="flowtalkListen" class="secondary" type="button">🔊 Ativar alto-falante</button>
         <div id="flowtalkAudioOutputs" hidden aria-hidden="true"></div>
-        <p class="hint">Mantenha esta página aberta para ouvir. O iPhone não garante áudio em segundo plano no PWA.</p>
+        <p class="hint">Mantenha o FlowTalk aberto para ouvir. Com a tela bloqueada, é necessário um app nativo.</p>
       </section>
-      <div class="tip">📲 <b>Ícone exclusivo:</b> abra <strong>esta página</strong> no Safari, toque em Compartilhar → Adicionar à Tela de Início e escolha “Abrir como App”.</div>
+      <div class="tip">Para ter o FlowTalk na tela inicial: Safari → Compartilhar → Adicionar à Tela de Início.</div>
     </section>
     <footer>FlowTalk • comunicação ao vivo, sem gravar no histórico.</footer>
   </main>
