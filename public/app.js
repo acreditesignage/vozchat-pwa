@@ -1,6 +1,7 @@
 const $ = q => document.querySelector(q);
 let me=null, rooms=[], current=null, messages=[], events=null, isRegister=false, recorder=null, pieces=[], recordingStart=0, recordingTicker=null, recordedCanceled=false, deferredInstall=null, pendingFiles=[],pendingRoom=null,previewUrl=null,uploading=false;
 const joinParam = new URLSearchParams(location.search).get('join');
+const openParam = new URLSearchParams(location.search).get('open');
 const avatar = name => (name||'?').slice(0,1).toUpperCase();
 const time = iso => new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 const day = iso => new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
@@ -12,11 +13,139 @@ function sortRooms() {rooms.sort((a,b)=>new Date(b.last?.createdAt||b.createdAt)
 function authMode(register) {isRegister=register;$('#nameField').hidden=!register;$('#realName').required=register;$('#usernameField').hidden=register;$('#username').required=!register;$('#authDescription').textContent=register?'Escolha como quer ser chamado. Seu ID exclusivo será criado automaticamente.':'Entre com seu ID numérico (ou usuário antigo) e sua senha.';$('#authTitle').textContent=register?'Crie sua conta':'Entre na sua conta';$('#authSubmit').innerHTML=register?'Criar conta <span>→</span>':'Entrar <span>→</span>';$('#authSwitchLabel').firstChild.textContent=register?'Já possui uma conta? ':'Ainda não tem conta? ';$('#authSwitch').textContent=register?'Entrar':'Criar conta';$('#password').autocomplete=register?'new-password':'current-password';}
 $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
 $('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#authSubmit');btn.disabled=true;try {const creating=isRegister;const result=await api(creating?'/api/register':'/api/login',{method:'POST',data:creating?{name:$('#realName').value,password:$('#password').value}:{username:$('#username').value,password:$('#password').value}});$('#password').value='';await start();if(creating&&result.user?.publicId){$('#welcomePublicId').textContent=result.user.publicId;openDialog('welcomeDialog');}}catch(err){toast(err.message);}finally{btn.disabled=false;}});
-async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);$('#meAvatar').textContent=avatar(me.name);renderRooms();connectEvents();if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
+async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);$('#meAvatar').textContent=avatar(me.name);renderRooms();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');}if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
 function upsertRoom(r) {let idx=rooms.findIndex(x=>x.id===r.id);if(idx<0)rooms.push(r);else rooms[idx]={...rooms[idx],...r};sortRooms();renderRooms();if(current===r.id)renderHeader();}
 function renderRooms(){const list=$('#roomList');list.replaceChildren();const term=$('#search').value.trim().toLowerCase();const filtered=rooms.filter(x=>x.name.toLowerCase().includes(term)||String(x.peerId||'').includes(term));if(!filtered.length){const el=document.createElement('p');el.className='list-empty';el.textContent=term?'Nenhuma conversa encontrada.':'Nenhuma conversa ainda. Toque em + para criar a primeira.';list.append(el);return;}for(const room of filtered){const btn=document.createElement('button');btn.type='button';btn.className='room-item'+(room.id===current?' active':'');const ic=document.createElement('div');ic.className='room-icon';ic.textContent=avatar(room.name);const info=document.createElement('div');info.className='room-info';const top=document.createElement('div');top.className='room-name';const title=document.createElement('strong');title.textContent=room.name;const small=document.createElement('small');small.textContent=room.last?time(room.last.createdAt):'';top.append(title,small);const preview=document.createElement('div');preview.className='room-preview';preview.textContent=room.last?`${room.last.senderName}: ${room.last.type==='audio'?'🎤 Mensagem de voz':({image:'📷 Foto',video:'🎬 Vídeo',file:'📎 Arquivo'}[room.last.type]||room.last.text)}`:'Conversa criada · toque para abrir';info.append(top,preview);btn.append(ic,info);btn.addEventListener('click',()=>openRoom(room.id));list.append(btn);}}
 $('#search').addEventListener('input',renderRooms);
-function connectEvents(){if(events)events.close();events=new EventSource('/api/events');events.addEventListener('room',event=>{upsertRoom(JSON.parse(event.data));});events.addEventListener('message',event=>{const msg=JSON.parse(event.data);if(current===msg.roomId && !messages.some(m=>m.id===msg.id)){messages.push(msg);renderMessage(msg);scrollDown();}else if(current!==msg.roomId){const room=rooms.find(x=>x.id===msg.roomId);if(room)toast(`Nova mensagem em ${room.name}`);}});events.onerror=()=>{if(!navigator.onLine)$('#offline').hidden=false;};}
+// Preferências locais: alertas durante a conversa e notificações do sistema.
+const SETTINGS_KEY='vozchat_notification_settings_v1';
+let notifyPrefs={sound:true,vibrate:true};
+try{notifyPrefs={...notifyPrefs,...JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}')};}catch{}
+let alertAudio=null,unreadAlerts=0;
+const defaultTitle=document.title;
+$('#notificationSound').checked=notifyPrefs.sound!==false;
+$('#notificationVibrate').checked=notifyPrefs.vibrate!==false;
+function saveNotifyPrefs(){
+  notifyPrefs={sound:$('#notificationSound').checked,vibrate:$('#notificationVibrate').checked};
+  try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(notifyPrefs));}catch{}
+}
+$('#notificationSound').addEventListener('change',saveNotifyPrefs);
+$('#notificationVibrate').addEventListener('change',saveNotifyPrefs);
+function unlockAlertAudio(){
+  if(!alertAudio){const AudioCtor=window.AudioContext||window.webkitAudioContext;if(!AudioCtor)return;alertAudio=new AudioCtor();}
+  if(alertAudio.state==='suspended')void alertAudio.resume().catch(()=>{});
+}
+document.addEventListener('pointerdown',unlockAlertAudio,{passive:true});
+function soundAlert(){
+  if(!notifyPrefs.sound)return;
+  try{
+    unlockAlertAudio();
+    if(!alertAudio||alertAudio.state!=='running')return;
+    const now=alertAudio.currentTime;
+    for(const [freq,at] of [[780,0],[980,.12]]){
+      const oscillator=alertAudio.createOscillator(),gain=alertAudio.createGain();
+      oscillator.type='sine';oscillator.frequency.value=freq;
+      gain.gain.setValueAtTime(.0001,now+at);
+      gain.gain.exponentialRampToValueAtTime(.14,now+at+.018);
+      gain.gain.exponentialRampToValueAtTime(.0001,now+at+.12);
+      oscillator.connect(gain).connect(alertAudio.destination);
+      oscillator.start(now+at);oscillator.stop(now+at+.13);
+    }
+  }catch{}
+}
+function vibrateAlert(){if(notifyPrefs.vibrate&&typeof navigator.vibrate==='function')try{navigator.vibrate([110,70,110]);}catch{}}
+function incomingAlert(msg){
+  if(msg.senderId===me?.id)return;
+  if(document.visibilityState==='visible'){soundAlert();vibrateAlert();}
+  else{unreadAlerts++;document.title='('+unreadAlerts+') VozChat · nova mensagem';}
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){unreadAlerts=0;document.title=defaultTitle;}});
+function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;}
+function pushInstallHint(){return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone);}
+async function refreshNotificationStatus(){
+  const status=$('#notificationStatus'),enable=$('#enableNotifications'),disable=$('#disableNotifications');
+  if(!pushSupported()){
+    status.textContent='Notificações push não suportadas neste navegador. Som no chat e vibração compatível continuam disponíveis.';
+    enable.disabled=true;disable.hidden=true;return;
+  }
+  if(pushInstallHint()){
+    status.textContent='No iPhone, instale o VozChat na Tela de Início pelo Safari e abra o aplicativo instalado.';
+    enable.disabled=true;disable.hidden=true;return;
+  }
+  if(Notification.permission==='denied'){
+    status.textContent='Notificações bloqueadas. Libere o VozChat nas configurações de notificações do aparelho.';
+    enable.disabled=true;disable.hidden=true;return;
+  }
+  try{
+    const config=await api('/api/push/config');
+    if(!config.enabled){status.textContent='O servidor ainda não configurou as notificações push.';enable.disabled=true;return;}
+    const registration=await navigator.serviceWorker.ready;
+    const subscription=await registration.pushManager.getSubscription();
+    const active=Notification.permission==='granted'&&subscription&&
+      (localStorage.getItem('vozchat_push_uid')===me?.id);
+    status.textContent=active?'Ativadas neste aparelho. Você receberá avisos de novas mensagens.':'Toque em Ativar para permitir notificações deste aparelho.';
+    enable.disabled=false;enable.hidden=!!active;disable.hidden=!active;
+  }catch{status.textContent='Não foi possível consultar as notificações. Tente novamente.';}
+}
+$('#notificationsButton').addEventListener('click',()=>{
+  openDialog('notificationsDialog');
+  void refreshNotificationStatus();
+});
+$('#enableNotifications').addEventListener('click',async()=>{
+  if(!me||!pushSupported()||pushInstallHint())return;
+  // O pedido ocorre diretamente após o toque, exigência de navegadores móveis.
+  const requested=Notification.requestPermission();
+  const enable=$('#enableNotifications');enable.disabled=true;
+  try{
+    const permission=await requested;
+    if(permission!=='granted'){toast('Permissão de notificações não concedida.');return;}
+    const config=await api('/api/push/config');
+    if(!config.enabled||!config.publicKey)throw new Error('Notificações indisponíveis no servidor.');
+    const registration=await navigator.serviceWorker.ready;
+    const bytes=(b64=>{
+      const pad='='.repeat((4-b64.length%4)%4);
+      const raw=atob((b64+pad).replace(/-/g,'+').replace(/_/g,'/'));
+      return Uint8Array.from(raw,c=>c.charCodeAt(0));
+    })(config.publicKey);
+    let subscription=await registration.pushManager.getSubscription();
+    if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:bytes});
+    await api('/api/push/subscribe',{method:'POST',data:{subscription:subscription.toJSON()}});
+    localStorage.setItem('vozchat_push_uid',me.id);
+    unlockAlertAudio();toast('Notificações ativadas!');
+  }catch(err){toast(err.message||'Não foi possível ativar notificações.');}
+  finally{enable.disabled=false;void refreshNotificationStatus();}
+});
+$('#disableNotifications').addEventListener('click',async()=>{
+  try{
+    const registration=await navigator.serviceWorker.ready;
+    const subscription=await registration.pushManager.getSubscription();
+    if(subscription){
+      await api('/api/push/unsubscribe',{method:'POST',data:{endpoint:subscription.endpoint}});
+      await subscription.unsubscribe();
+    }
+    localStorage.removeItem('vozchat_push_uid');toast('Notificações desativadas neste aparelho.');
+  }catch(err){toast(err.message||'Falha ao desativar notificações.');}
+  void refreshNotificationStatus();
+});
+$('#testNotifications').addEventListener('click',async()=>{
+  unlockAlertAudio();soundAlert();vibrateAlert();
+  toast('Teste realizado. Vibração depende do aparelho.');
+  if(pushSupported()&&Notification.permission==='granted')try{
+    const registration=await navigator.serviceWorker.ready;
+    await registration.showNotification('VozChat 🔔',{body:'Este é um teste de notificação.',icon:'/icons/icon-192.png',tag:'vozchat-test',vibrate:[100,50,100],data:{url:'/app'}});
+  }catch{}
+});
+async function autoRestoreNotifications(){
+  if(!pushSupported()||Notification.permission!=='granted')return;
+  try{
+    if(localStorage.getItem('vozchat_push_uid')!==me?.id)return;
+    const config=await api('/api/push/config');if(!config.enabled)return;
+    const registration=await navigator.serviceWorker.ready;
+    const subscription=await registration.pushManager.getSubscription();
+    if(subscription)await api('/api/push/subscribe',{method:'POST',data:{subscription:subscription.toJSON()}});
+  }catch{}
+}
+function connectEvents(){if(events)events.close();events=new EventSource('/api/events');events.addEventListener('room',event=>{upsertRoom(JSON.parse(event.data));});events.addEventListener('message',event=>{const msg=JSON.parse(event.data);if(msg.senderId!==me?.id)incomingAlert(msg);if(current===msg.roomId && !messages.some(m=>m.id===msg.id)){messages.push(msg);renderMessage(msg);scrollDown();}else if(current!==msg.roomId){const room=rooms.find(x=>x.id===msg.roomId);if(room)toast(`Nova mensagem em ${room.name}`);}});events.onerror=()=>{if(!navigator.onLine)$('#offline').hidden=false;};}
 async function openRoom(roomId){current=roomId;$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();}catch(err){toast(err.message);} }
 function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#headerAvatar').textContent=avatar(r.name);}
 function renderMessages(){const list=$('#messages');list.replaceChildren();if(!messages.length){const msg=document.createElement('div');msg.className='mini-welcome';msg.textContent=current&&rooms.find(r=>r.id===current)?.isDirect?'Conversa iniciada ✨\nDiga oi para começar.':'Conversa iniciada ✨\nCompartilhe o convite para outras pessoas entrarem e começarem a trocar mensagens.';list.append(msg);}let lastDay='';for(const m of messages){const key=day(m.createdAt);if(key!==lastDay){const divider=document.createElement('div');divider.className='day-divider';divider.textContent=key;list.append(divider);lastDay=key;}renderMessage(m);}scrollDown();}
@@ -77,7 +206,17 @@ function showInvite(){const r=rooms.find(x=>x.id===current);if(!r||r.isDirect)re
 $('#inviteButton').addEventListener('click',showInvite);
 $('#copyInvite').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('#inviteLink').value);toast('Convite copiado!');$('#inviteDialog').close();}catch{$('#inviteLink').select();toast('Selecione e copie o link.');}});
 $('#mobileBack').addEventListener('click',()=>{$('#app').classList.remove('chat-open');});
-$('#logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST'});}catch{}showAuth();authMode(false);});
+$('#logout').addEventListener('click',async()=>{
+  try{
+    if(pushSupported()){
+      const registration=await navigator.serviceWorker.ready,sub=await registration.pushManager.getSubscription();
+      if(sub){await api('/api/push/unsubscribe',{method:'POST',data:{endpoint:sub.endpoint}});await sub.unsubscribe();}
+    }
+  }catch{}
+  try{localStorage.removeItem('vozchat_push_uid');}catch{}
+  try{await api('/api/logout',{method:'POST'});}catch{}
+  showAuth();authMode(false);
+});
 $('#composer').addEventListener('submit',async e=>{e.preventDefault();const input=$('#msgInput');const content=input.value.trim();if(!content||!current)return;const roomId=current;input.value='';input.style.height='auto';try {await api(`/api/rooms/${roomId}/messages`,{method:'POST',data:{text:content}});}catch(err){input.value=content;toast(err.message);}});
 // Envio de mídias e arquivos. A seleção é feita pelo navegador (câmera nativa no celular).
 const MEDIA_MAX=25*1024*1024;

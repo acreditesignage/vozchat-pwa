@@ -9,7 +9,7 @@ import net from 'node:net';
 async function unusedPort(){return new Promise(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const port=s.address().port;s.close(()=>resolve(port));});});}
 test('cadastro, chat, privacidade, convite, texto, áudio, fotos, vídeos, arquivos e PWA',async t=>{
   const PORT=await unusedPort(), dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'vozchat-'));
-  const server=spawn(process.execPath,['server.js'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,DATA_DIR:dataDir,PORT:String(PORT)},stdio:'pipe'});
+  const server=spawn(process.execPath,['server.js'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,DATABASE_URL:'',VOZCHAT_DATABASE_URL:'',VAPID_PUBLIC_KEY:'',VAPID_PRIVATE_KEY:'',NODE_ENV:'test',DATA_DIR:dataDir,PORT:String(PORT)},stdio:'pipe'});
   t.after(()=>{server.kill('SIGTERM');fs.rmSync(dataDir,{recursive:true,force:true});});
   const base=`http://127.0.0.1:${PORT}`;
   for(let i=0;i<100;i++){try{const r=await fetch(base+'/api/health');if(r.ok)break;}catch{}await new Promise(r=>setTimeout(r,50));}
@@ -45,6 +45,21 @@ test('cadastro, chat, privacidade, convite, texto, áudio, fotos, vídeos, arqui
   const loginNew=await req('POST','/api/login',{username:'12',password:'senha-nova-789'});
   assert.equal(loginNew.status,200);
   assert.equal(loginNew.data.user.name,'Clara');
+  // Notificações devem exigir sessão. Sem credenciais VAPID, ficam indisponíveis sem quebrar o chat.
+  const anonymousConfig=await req('GET','/api/push/config');
+  assert.equal(anonymousConfig.status,401);
+  const config=await req('GET','/api/push/config',undefined,c1);
+  assert.equal(config.status,200);
+  assert.equal(typeof config.data.enabled,'boolean');
+  const invalidSubscription=await req('POST','/api/push/subscribe',{subscription:{endpoint:'http://localhost/private',keys:{p256dh:'x',auth:'y'}}},c1);
+  assert.ok([400,503].includes(invalidSubscription.status));
+  const unsubscribe=await req('POST','/api/push/unsubscribe',{endpoint:'https://fcm.googleapis.com/nonexistent'},c1);
+  assert.equal(unsubscribe.status,200);
+  const workerSource=await (await fetch(base+'/sw.js')).text();
+  assert.match(workerSource,/notificationclick/);
+  assert.match(workerSource,/addEventListener\('push'/);
+  const appHtml=await (await fetch(base+'/app')).text();
+  assert.match(appHtml,/notificationsDialog|enableNotifications/);
   const create=await req('POST','/api/rooms',{name:'Equipe Alfa'},c1);assert.equal(create.status,201);const room=create.data.room;
   const denied=await req('GET',`/api/rooms/${room.id}/messages`,undefined,c2);assert.equal(denied.status,403);
   const join=await req('POST','/api/rooms/join',{invite:room.inviteUrl.split('join=')[1]},c2);assert.equal(join.status,200);

@@ -27,8 +27,13 @@ fs.mkdirSync(AUDIO, { recursive: true });
 fs.mkdirSync(FILES, { recursive: true });
 const DATA_FILE = path.join(DATA, 'database.json');
 const POSTGRES_URL = process.env.DATABASE_URL || process.env.VOZCHAT_DATABASE_URL;
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+const pushEnabled = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+const webPush = pushEnabled ? (await import('web-push')).default : null;
+if(webPush) webPush.setVapidDetails(process.env.VAPID_SUBJECT || 'https://vozchat-pwa.onrender.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 const pool = POSTGRES_URL ? new (await import('pg')).default.Pool({connectionString:POSTGRES_URL,max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000}) : null;
-let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], nextPublicId: '10' };
+let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], nextPublicId: '10', pushSubscriptions: [] };
 if(!pool) {
   try {db={...db,...JSON.parse(fs.readFileSync(DATA_FILE,'utf8'))};}
   catch(err){if(err.code!=='ENOENT')throw err;}
@@ -79,6 +84,42 @@ function passwordHash(p, salt=rand(16)) { return salt + ':' + crypto.scryptSync(
 function matchesPassword(p, stored) { try { const [salt, expected] = stored.split(':'); const actual = passwordHash(p, salt).split(':')[1]; return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex')); } catch { return false; } }
 function body(req, max=32768) { return new Promise((resolve,reject) => { let chunks=[],len=0; req.on('data', c=> { len += c.length; if (len > max) { reject(Object.assign(new Error('Arquivo ou mensagem grande demais.'),{status:413})); req.destroy(); } else chunks.push(c); }); req.on('end',()=>resolve(Buffer.concat(chunks))); req.on('error',reject); }); }
 const clients = new Map();
+async function notifyMembers(room, sender, msg) {
+  if(!webPush)return;
+  const recipients = new Set(room.members.filter(uid=>uid!==sender.id));
+  if(!recipients.size)return;
+  const payload=JSON.stringify({
+    title: room.directKey ? sender.name : room.name,
+    body: msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':'Nova mensagem',
+    roomId:room.id,
+    url:'/app?open='+encodeURIComponent(room.id),
+    tag:'vozchat-'+room.id,
+    messageId:msg.id
+  });
+  const subscriptions=(db.pushSubscriptions||[]).filter(s=>recipients.has(s.uid));
+  if(!subscriptions.length)return;
+  let changed=false;
+  await Promise.allSettled(subscriptions.map(async record=>{
+    try { await webPush.sendNotification(record.subscription,payload,{TTL:3600,urgency:'high',timeout:10000}); }
+    catch(err) {
+      if(err?.statusCode===404||err?.statusCode===410) {
+        db.pushSubscriptions=db.pushSubscriptions.filter(s=>s!==record);changed=true;
+      } else console.warn('Web push delivery error',Number(err?.statusCode)||'network');
+    }
+  }));
+  if(changed)await save();
+}
+function validPushSubscription(subscription) {
+  if(!subscription||typeof subscription.endpoint!=='string'||subscription.endpoint.length>2048)return false;
+  let host;
+  try {const url=new URL(subscription.endpoint);if(url.protocol!=='https:')return false;host=url.hostname.toLowerCase();}
+  catch {return false;}
+  if(!['push.apple.com','googleapis.com','mozilla.com','windows.com','microsoft.com'].some(domain=>host===domain||host.endsWith('.'+domain)))return false;
+  const keys=subscription.keys;
+  return keys&&typeof keys.p256dh==='string'&&typeof keys.auth==='string'
+    && /^[a-zA-Z0-9_-]{60,150}$/.test(keys.p256dh)
+    && /^[a-zA-Z0-9_-]{10,90}$/.test(keys.auth);
+}
 function push(userIds, type, data) { const event = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`; for(const uid of userIds) for(const res of clients.get(uid)||[]) { try { res.write(event); } catch {} } }
 function json(res,status,payload,headers={}) { res.writeHead(status, {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers}); res.end(JSON.stringify(payload)); }
 function error(res,status,message) { json(res,status,{error:message}); }
@@ -118,7 +159,7 @@ function allocatePublicId(){
 function safeUser(u) { return {id:u.id,name:u.name,username:u.username,publicId:u.publicId}; }
 function roomView(r,uid) { const last=[...db.messages].reverse().find(m=>m.roomId===r.id); const peer=r.directKey?db.users.find(u=>u.id!==uid&&r.members.includes(u.id)):null; return {id:r.id,name:peer?.name||r.name,peerId:peer?.publicId||null,isDirect:!!r.directKey,createdAt:r.createdAt,members:r.members.length,owner:r.owner,inviteUrl:r.directKey?null:`/app?join=${encodeURIComponent(r.id)}.${r.secret}`,last:last?{type:last.type,text:last.text||'',fileName:last.fileName||'',createdAt:last.createdAt,senderName:last.senderName}:null}; }
 function member(uid,rid) { const r=db.rooms.find(r=>r.id===rid); return r && r.members.includes(uid) ? r : null; }
-async function sendMsg(room,user,type,extra) { const msg={id:id(),roomId:room.id,senderId:user.id,senderName:user.name,type,createdAt:new Date().toISOString(),...extra}; db.messages.push(msg); await save(); push(room.members,'message',msg); for(const uid of room.members)push([uid],'room',roomView(room,uid)); return msg; }
+async function sendMsg(room,user,type,extra) { const msg={id:id(),roomId:room.id,senderId:user.id,senderName:user.name,type,createdAt:new Date().toISOString(),...extra}; db.messages.push(msg); await save(); push(room.members,'message',msg); void notifyMembers(room,user,msg).catch(e=>console.warn('Push error',e?.message)); for(const uid of room.members)push([uid],'room',roomView(room,uid)); return msg; }
 function contentType(ext) { return {'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.webmanifest':'application/manifest+json','.ico':'image/x-icon'}[ext]||'application/octet-stream'; }
 async function staticFile(req,res,url) { const name=url.pathname==='/'||url.pathname==='/app' ? '/index.html' : url.pathname; const decoded=decodeURIComponent(name); const absolute=path.resolve(STATIC,'.'+decoded); if(!(absolute===STATIC || absolute.startsWith(STATIC+path.sep))) return error(res,403,'Acesso negado.'); let st; try{st=await fsp.stat(absolute);}catch{return error(res,404,'Não encontrado.');} if(!st.isFile()) return error(res,404,'Não encontrado.'); res.writeHead(200,{'Content-Type':contentType(path.extname(absolute)),'Cache-Control':decoded==='/index.html'?'no-cache':'public, max-age=3600','X-Content-Type-Options':'nosniff'}); fs.createReadStream(absolute).pipe(res); }
 const loginAttempts = new Map();
@@ -159,6 +200,30 @@ async function api(req,res,url) {
   if(method==='POST'&&p==='/api/logout') { const token=cookie(req).vozchat_session; db.sessions=db.sessions.filter(s=>s.hash!==sha(token||'')); await save(); return json(res,200,{ok:true},{'Set-Cookie':sessionCookie(req,'',0)}); }
   if(method==='GET'&&p==='/api/bootstrap') return json(res,200,{user:safeUser(u),rooms:db.rooms.filter(r=>r.members.includes(u.id)).map(r=>roomView(r,u.id))});
   if(method==='GET'&&p==='/api/events') { res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-store, must-revalidate','Connection':'keep-alive','X-Accel-Buffering':'no'}); res.write(': connected\n\n'); const set=clients.get(u.id)||new Set(); set.add(res); clients.set(u.id,set); const keep=setInterval(()=>{try{res.write(': ping\n\n');}catch{}},20000); req.on('close',()=>{clearInterval(keep);set.delete(res);if(!set.size)clients.delete(u.id);}); return; }
+  if(method==='GET'&&p==='/api/push/config') return json(res,200,{enabled:pushEnabled,publicKey:pushEnabled?VAPID_PUBLIC_KEY:null});
+  if(method==='POST'&&p==='/api/push/subscribe') {
+    if(!pushEnabled)return error(res,503,'Notificações push não configuradas.');
+    const input=JSON.parse((await body(req,8192)).toString('utf8'));
+    if(!validPushSubscription(input.subscription))return error(res,400,'Assinatura de notificações inválida.');
+    db.pushSubscriptions ||= [];
+    const endpoint=input.subscription.endpoint;
+    db.pushSubscriptions=db.pushSubscriptions.filter(s=>s.subscription?.endpoint!==endpoint);
+    const own=db.pushSubscriptions.filter(s=>s.uid===u.id);
+    if(own.length>=6) {
+      const oldest=own.sort((a,b)=>a.createdAt-b.createdAt)[0];
+      db.pushSubscriptions=db.pushSubscriptions.filter(s=>s!==oldest);
+    }
+    db.pushSubscriptions.push({uid:u.id,subscription:{endpoint,keys:{p256dh:input.subscription.keys.p256dh,auth:input.subscription.keys.auth}},createdAt:Date.now()});
+    await save();
+    return json(res,200,{ok:true});
+  }
+  if(method==='POST'&&p==='/api/push/unsubscribe') {
+    const input=JSON.parse((await body(req,4096)).toString('utf8'));
+    if(typeof input.endpoint!=='string')return error(res,400,'Endpoint inválido.');
+    db.pushSubscriptions=(db.pushSubscriptions||[]).filter(s=>!(s.uid===u.id&&s.subscription?.endpoint===input.endpoint));
+    await save();
+    return json(res,200,{ok:true});
+  }
   if(method==='POST'&&p==='/api/contacts/add') {
     if(limitContactSearch(u.id))return error(res,429,'Muitas buscas por ID. Tente novamente mais tarde.');
     const input=JSON.parse((await body(req)).toString('utf8'));

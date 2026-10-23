@@ -12,7 +12,7 @@
   </section>
   <main id="app" class="app" hidden>
     <aside class="sidebar" id="sidebar">
-      <div class="sidebar-head"><div class="identity"><div class="small-logo">◖◗</div><div><h1>VozChat<span>.</span></h1><p>Mensagens e voz</p></div></div><button class="icon-button" title="Instalar aplicativo" id="installButton" aria-label="Instalar aplicativo">⬇</button></div>
+      <div class="sidebar-head"><div class="identity"><div class="small-logo">◖◗</div><div><h1>VozChat<span>.</span></h1><p>Mensagens e voz</p></div></div><div class="header-actions"><button class="icon-button" type="button" id="notificationsButton" title="Notificações: som e vibração" aria-label="Configurar notificações">🔔</button><button class="icon-button" title="Instalar aplicativo" id="installButton" aria-label="Instalar aplicativo">⬇</button></div></div>
       <div class="sidebar-title"><div><div class="eyebrow">SUAS CONVERSAS</div><h2>Mensagens</h2></div><div class="contact-actions"><button class="add-id-button" id="newDirect" type="button" title="Adicionar pessoa por ID" aria-label="Adicionar pessoa por ID">+ ID</button><button class="new-button" id="newRoom" type="button" title="Criar grupo" aria-label="Criar grupo">+</button></div></div>
       <div class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Buscar conversa" aria-label="Buscar conversa"></div>
       <div id="roomList" class="room-list"></div>
@@ -32,5 +32,19 @@
   <dialog id="roomDialog" class="dialog"><form method="dialog" id="roomForm"><div class="dialog-head"><div class="dialog-icon">✦</div><button class="dialog-close" type="button" data-close="roomDialog" aria-label="Fechar">×</button></div><h2>Criar conversa</h2><p>Escolha um nome e convide quem vai participar.</p><label class="field">Nome da conversa<input id="newRoomName" maxlength="60" placeholder="Ex.: Equipe da clínica" required></label><button class="primary" type="submit">Criar conversa →</button></form></dialog>
   <dialog id="inviteDialog" class="dialog"><div class="dialog-head"><div class="dialog-icon">↗</div><button class="dialog-close" type="button" data-close="inviteDialog" aria-label="Fechar">×</button></div><h2>Compartilhar convite</h2><p>Quem receber esse link poderá entrar na conversa. Compartilhe apenas com pessoas de confiança.</p><label class="field">Link da conversa<input id="inviteLink" readonly></label><button id="copyInvite" class="primary" type="button">Copiar link de convite</button></dialog>
   <dialog id="fileDialog" class="dialog upload-dialog"><div class="dialog-head"><div class="dialog-icon">📎</div><button class="dialog-close" type="button" data-close="fileDialog" aria-label="Fechar">×</button></div><h2>Enviar anexo</h2><div id="uploadPreview" class="upload-preview"></div><p id="uploadInfo" class="upload-info"></p><button class="primary" id="confirmUpload" type="button">Enviar arquivo →</button><p class="upload-tip">Permitidos até 5 arquivos, com no máximo 25 MB cada.</p></dialog>
+  <dialog id="notificationsDialog" class="dialog notification-dialog">
+    <div class="dialog-head"><div class="dialog-icon">🔔</div><button class="dialog-close" type="button" data-close="notificationsDialog" aria-label="Fechar">×</button></div>
+    <h2>Notificações do VozChat</h2>
+    <p>Receba avisos de mensagens mesmo com o chat em segundo plano, quando o dispositivo permitir.</p>
+    <p id="notificationStatus" class="notification-status" role="status" aria-live="polite">Verificando compatibilidade...</p>
+    <button id="enableNotifications" class="primary" type="button">Ativar notificações push</button>
+    <button id="disableNotifications" class="secondary notification-secondary" type="button" hidden>Desativar notificações neste aparelho</button>
+    <div class="notification-preferences">
+      <label class="notification-choice"><span>🔊 <strong>Som no chat aberto</strong><small>Tocar alerta ao receber mensagem</small></span><input type="checkbox" id="notificationSound" checked></label>
+      <label class="notification-choice"><span>📳 <strong>Vibração</strong><small>Vibrar se o dispositivo oferecer suporte</small></span><input type="checkbox" id="notificationVibrate" checked></label>
+    </div>
+    <button id="testNotifications" class="secondary notification-secondary" type="button">▶ Testar som e vibração</button>
+    <p class="upload-tip">iPhone: abra no Safari e use Compartilhar → Adicionar à Tela de Início. Depois abra o ícone do VozChat e toque em Ativar notificações. O som e a vibração em segundo plano dependem do sistema.</p>
+  </dialog>
   <script type="module" src="/app.js"></script>
 </body></html>
