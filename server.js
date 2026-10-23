@@ -578,6 +578,10 @@ server.on('upgrade',(req,socket,head)=>{
 
 
 console.log('Voice Flow / LiveKit configuration: '+(livekitConfigured?'configured':'not configured'));
+console.log('Voice Flow / LiveKit diagnostics: '+
+  'URL='+(LIVEKIT_URL?(/^wss:\/\/[^\s/]+$/i.test(LIVEKIT_URL)?'valid':'invalid_format'):'missing')+
+  ' KEY='+(LIVEKIT_API_KEY?'present':'missing')+
+  ' SECRET='+(LIVEKIT_API_SECRET?'present':'missing'));
 if(livekitConfigured){
   Promise.race([
     livekitRoomService.listRooms().then(()=>true),
