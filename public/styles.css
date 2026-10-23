@@ -19,3 +19,15 @@
 .upload-preview img,.upload-preview video{max-width:100%;max-height:250px;object-fit:contain}.large-file-icon{font-size:50px}
 .dialog .upload-info{margin:13px 0;font-size:12px;overflow-wrap:anywhere}.dialog .upload-tip{font-size:11px;text-align:center;margin:12px 0 0}.primary:disabled{opacity:.6;cursor:wait}
 @media(max-width:630px){.composer{gap:5px;padding:7px 6px}.tool-button{width:31px;height:35px;font-size:24px}.emoji-button{font-size:24px}.mic-button,.send-button{width:35px;height:35px}.composer textarea{min-width:0}.attachment-picker{gap:5px}.attachment-picker button span{font-size:10px}.emoji-picker{grid-template-columns:repeat(8,minmax(0,1fr))}.message-image,.message-video{width:min(260px,67vw)}}
+/* Adição por ID e cadastro simplificado */
+.contact-actions{display:flex;align-items:center;gap:8px}
+.add-id-button{border:1px solid #dedaf7;color:#6653e8;background:#f2f0ff;border-radius:11px;padding:9px 11px;font-weight:800;font-size:12px;min-height:36px;white-space:nowrap}
+.add-id-button:hover{background:#e5e1ff}
+.copy-id-button{display:flex;align-items:center;gap:5px;border:0;padding:2px 0;background:transparent;color:#6458d8;font-size:12px;font-weight:800;text-align:left;letter-spacing:.1px}
+.copy-id-button:hover{text-decoration:underline}
+.my-id-value{background:#f2efff;border:1px dashed #8a79ed;border-radius:16px;padding:19px;text-align:center;font-size:35px;letter-spacing:3px;font-weight:850;color:#604cd4;margin:14px 0 20px;user-select:all}
+.empty-actions{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap}
+.secondary.inline{background:#fff;border:1px solid #e7e4f6;border-radius:12px;padding:13px 19px;color:#6554e4;font-weight:750}
+.secondary.inline:hover{background:#f5f3ff}
+#contactId{font-variant-numeric:tabular-nums;font-size:21px;letter-spacing:2px}
+@media(max-width:520px){.add-id-button{padding:8px 9px}.my-id-value{font-size:30px}.empty-actions{flex-direction:column;align-items:stretch}.empty-actions button{width:100%}}

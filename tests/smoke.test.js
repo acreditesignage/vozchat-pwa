@@ -19,6 +19,32 @@ test('cadastro, chat, privacidade, convite, texto, áudio, fotos, vídeos, arqui
   const manifest=await req('GET','/manifest.webmanifest');assert.equal(manifest.status,200);
   const register1=await req('POST','/api/register',{name:'Ana',username:'ana',password:'senha-forte-123'});assert.equal(register1.status,201);c1=register1.cookie;
   const register2=await req('POST','/api/register',{name:'Bruno',username:'bruno',password:'senha-forte-456'});assert.equal(register2.status,201);c2=register2.cookie;
+
+  // Novo onboarding: IDs numéricos sequenciais a partir de 10, com senha.
+  assert.equal(register1.data.user.publicId,'10');
+  assert.equal(register2.data.user.publicId,'11');
+  const addById=await req('POST','/api/contacts/add',{publicId:'11'},c1);
+  assert.equal(addById.status,201);
+  assert.equal(addById.data.room.isDirect,true);
+  assert.equal(addById.data.room.peerId,'11');
+  assert.equal(addById.data.room.name,'Bruno');
+  const sameChat=await req('POST','/api/contacts/add',{publicId:'10'},c2);
+  assert.equal(sameChat.status,200);
+  assert.equal(sameChat.data.room.id,addById.data.room.id);
+  assert.equal(sameChat.data.room.peerId,'10');
+  const self=await req('POST','/api/contacts/add',{publicId:'10'},c1);
+  assert.equal(self.status,400);
+  const missingId=await req('POST','/api/contacts/add',{publicId:'99'},c1);
+  assert.equal(missingId.status,404);
+  const loginById=await req('POST','/api/login',{username:'10',password:'senha-forte-123'});
+  assert.equal(loginById.status,200);
+  assert.equal(loginById.data.user.publicId,'10');
+  const unnamedAccount=await req('POST','/api/register',{name:'Clara',password:'senha-nova-789'});
+  assert.equal(unnamedAccount.status,201);
+  assert.equal(unnamedAccount.data.user.publicId,'12');
+  const loginNew=await req('POST','/api/login',{username:'12',password:'senha-nova-789'});
+  assert.equal(loginNew.status,200);
+  assert.equal(loginNew.data.user.name,'Clara');
   const create=await req('POST','/api/rooms',{name:'Equipe Alfa'},c1);assert.equal(create.status,201);const room=create.data.room;
   const denied=await req('GET',`/api/rooms/${room.id}/messages`,undefined,c2);assert.equal(denied.status,403);
   const join=await req('POST','/api/rooms/join',{invite:room.inviteUrl.split('join=')[1]},c2);assert.equal(join.status,200);

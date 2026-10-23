@@ -28,7 +28,7 @@ fs.mkdirSync(FILES, { recursive: true });
 const DATA_FILE = path.join(DATA, 'database.json');
 const POSTGRES_URL = process.env.DATABASE_URL || process.env.VOZCHAT_DATABASE_URL;
 const pool = POSTGRES_URL ? new (await import('pg')).default.Pool({connectionString:POSTGRES_URL,max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000}) : null;
-let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [] };
+let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], nextPublicId: '10' };
 if(!pool) {
   try {db={...db,...JSON.parse(fs.readFileSync(DATA_FILE,'utf8'))};}
   catch(err){if(err.code!=='ENOENT')throw err;}
@@ -86,31 +86,70 @@ function cookie(req) { return Object.fromEntries((req.headers.cookie||'').split(
 function userFrom(req) { const token = cookie(req).vozchat_session; if(!token) return null; const sess=db.sessions.find(s=>s.hash===sha(token) && s.expires>Date.now()); return sess ? db.users.find(u=>u.id===sess.uid) : null; }
 function sessionCookie(req,token,maxAge) { const secure = req.socket.encrypted || req.headers['x-forwarded-proto']==='https'; return `vozchat_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure?'; Secure':''}`; }
 async function newSession(req,res,u) { const token=rand(36); db.sessions=db.sessions.filter(s=>s.expires>Date.now()).slice(-3000); db.sessions.push({hash:sha(token),uid:u.id,expires:Date.now()+30*86400000}); await save(); return sessionCookie(req,token,30*86400); }
-function safeUser(u) { return {id:u.id,name:u.name,username:u.username}; }
-function roomView(r,uid) { const last=[...db.messages].reverse().find(m=>m.roomId===r.id); return {id:r.id,name:r.name,createdAt:r.createdAt,members:r.members.length,owner:r.owner,inviteUrl:`/app?join=${encodeURIComponent(r.id)}.${r.secret}`,last:last?{type:last.type,text:last.text||'',fileName:last.fileName||'',createdAt:last.createdAt,senderName:last.senderName}:null}; }
+async function ensurePublicIds() {
+  // IDs públicos começam em 10 e crescem sem limite fixo de dígitos.
+  const taken=new Set();
+  let next=10n, changed=false;
+  for(const u of db.users) {
+    if(typeof u.publicId==='string' && /^[1-9][0-9]+$/.test(u.publicId) && !taken.has(u.publicId)) {
+      taken.add(u.publicId);
+      const n=BigInt(u.publicId)+1n;
+      if(n>next)next=n;
+    } else if(u.publicId!==undefined) {delete u.publicId;changed=true;}
+  }
+  if(typeof db.nextPublicId==='string' && /^[1-9][0-9]+$/.test(db.nextPublicId)) {
+    const n=BigInt(db.nextPublicId);if(n>next)next=n;
+  }
+  for(const u of db.users)if(!u.publicId) {
+    while(taken.has(String(next)))next++;
+    u.publicId=String(next);
+    taken.add(u.publicId);next++;changed=true;
+  }
+  const newNext=String(next);
+  if(db.nextPublicId!==newNext){db.nextPublicId=newNext;changed=true;}
+  if(changed)await save();
+}
+function allocatePublicId(){
+  let n=BigInt(db.nextPublicId||'10');
+  while(db.users.some(u=>u.publicId===String(n) || u.username==='u'+String(n)))n++;
+  db.nextPublicId=String(n+1n);
+  return String(n);
+}
+function safeUser(u) { return {id:u.id,name:u.name,username:u.username,publicId:u.publicId}; }
+function roomView(r,uid) { const last=[...db.messages].reverse().find(m=>m.roomId===r.id); const peer=r.directKey?db.users.find(u=>u.id!==uid&&r.members.includes(u.id)):null; return {id:r.id,name:peer?.name||r.name,peerId:peer?.publicId||null,isDirect:!!r.directKey,createdAt:r.createdAt,members:r.members.length,owner:r.owner,inviteUrl:r.directKey?null:`/app?join=${encodeURIComponent(r.id)}.${r.secret}`,last:last?{type:last.type,text:last.text||'',fileName:last.fileName||'',createdAt:last.createdAt,senderName:last.senderName}:null}; }
 function member(uid,rid) { const r=db.rooms.find(r=>r.id===rid); return r && r.members.includes(uid) ? r : null; }
-async function sendMsg(room,user,type,extra) { const msg={id:id(),roomId:room.id,senderId:user.id,senderName:user.name,type,createdAt:new Date().toISOString(),...extra}; db.messages.push(msg); await save(); push(room.members,'message',msg); push(room.members,'room',roomView(room,user.id)); return msg; }
+async function sendMsg(room,user,type,extra) { const msg={id:id(),roomId:room.id,senderId:user.id,senderName:user.name,type,createdAt:new Date().toISOString(),...extra}; db.messages.push(msg); await save(); push(room.members,'message',msg); for(const uid of room.members)push([uid],'room',roomView(room,uid)); return msg; }
 function contentType(ext) { return {'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.webmanifest':'application/manifest+json','.ico':'image/x-icon'}[ext]||'application/octet-stream'; }
 async function staticFile(req,res,url) { const name=url.pathname==='/'||url.pathname==='/app' ? '/index.html' : url.pathname; const decoded=decodeURIComponent(name); const absolute=path.resolve(STATIC,'.'+decoded); if(!(absolute===STATIC || absolute.startsWith(STATIC+path.sep))) return error(res,403,'Acesso negado.'); let st; try{st=await fsp.stat(absolute);}catch{return error(res,404,'Não encontrado.');} if(!st.isFile()) return error(res,404,'Não encontrado.'); res.writeHead(200,{'Content-Type':contentType(path.extname(absolute)),'Cache-Control':decoded==='/index.html'?'no-cache':'public, max-age=3600','X-Content-Type-Options':'nosniff'}); fs.createReadStream(absolute).pipe(res); }
 const loginAttempts = new Map();
+const contactAttempts=new Map();
+function limitContactSearch(userId){
+  const now=Date.now(),windowMs=60*60*1000;
+  const hits=(contactAttempts.get(userId)||[]).filter(t=>now-t<windowMs);
+  if(hits.length>=20)return true;
+  hits.push(now);contactAttempts.set(userId,hits);
+  return false;
+}
 function tooMany(ip) { const now=Date.now(); let a=loginAttempts.get(ip)||[]; a=a.filter(t=>now-t<15*60*1000); a.push(now); loginAttempts.set(ip,a); return a.length>25; }
 async function api(req,res,url) {
   const p=url.pathname, method=req.method;
   if(method==='GET' && p==='/api/health') return json(res,200,{ok:true,service:'vozchat',storage:pool?'postgres':'local',time:new Date().toISOString()});
   if(method==='POST' && (p==='/api/register'||p==='/api/login')) {
     const input=JSON.parse((await body(req)).toString('utf8'));
-    const username=String(input.username||'').trim().toLowerCase(); const password=String(input.password||'');
+    let username=String(input.username||'').trim().toLowerCase(); const password=String(input.password||'');
     const sourceIp=String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();
     const rateKey=sourceIp+':'+username;
     if(p==='/api/login'&&(loginAttempts.get(rateKey)||[]).filter(t=>Date.now()-t<15*60*1000).length>=12)return error(res,429,'Muitas tentativas. Tente novamente em 15 minutos.');
-    if(!/^[a-z0-9_.-]{3,24}$/.test(username)) return error(res,400,'Usuário: 3 a 24 caracteres (letras, números, _ . -).');
+    if((p==='/api/login'||username) && !(/^[a-z0-9_.-]{3,24}$/.test(username)||/^[1-9][0-9]{1,79}$/.test(username))) return error(res,400,'Informe seu ID numérico ou nome de usuário válido.');
     if(p==='/api/register') {
       const name=String(input.name||'').trim();
       if(name.length<2||name.length>48 || password.length<8||password.length>128) return error(res,400,'Informe nome e senha de pelo menos 8 caracteres.');
-      if(db.users.some(u=>u.username===username)) return error(res,409,'Esse nome de usuário já existe.');
-      const u={id:id(),name,username,password:passwordHash(password),createdAt:new Date().toISOString()}; db.users.push(u); const ck=await newSession(req,res,u); return json(res,201,{user:safeUser(u)},{'Set-Cookie':ck});
+      if(username && db.users.some(u=>u.username===username)) return error(res,409,'Esse nome de usuário já existe.');
+      const publicId=allocatePublicId();
+      if(!username)username='u'+publicId;
+      const u={id:id(),name,username,publicId,password:passwordHash(password),createdAt:new Date().toISOString()}; db.users.push(u); const ck=await newSession(req,res,u); return json(res,201,{user:safeUser(u)},{'Set-Cookie':ck});
     }
-    const u=db.users.find(x=>x.username===username);
+    const u=db.users.find(x=>x.username===username||x.publicId===username);
     if(!u||!matchesPassword(password,u.password)) {const times=(loginAttempts.get(rateKey)||[]).filter(t=>Date.now()-t<15*60*1000);times.push(Date.now());loginAttempts.set(rateKey,times);return error(res,401,'Usuário ou senha incorretos. Se a conta foi criada antes da correção, talvez seja necessário criar outra.');}
     loginAttempts.delete(rateKey);
     const ck=await newSession(req,res,u); return json(res,200,{user:safeUser(u)},{'Set-Cookie':ck});
@@ -120,8 +159,27 @@ async function api(req,res,url) {
   if(method==='POST'&&p==='/api/logout') { const token=cookie(req).vozchat_session; db.sessions=db.sessions.filter(s=>s.hash!==sha(token||'')); await save(); return json(res,200,{ok:true},{'Set-Cookie':sessionCookie(req,'',0)}); }
   if(method==='GET'&&p==='/api/bootstrap') return json(res,200,{user:safeUser(u),rooms:db.rooms.filter(r=>r.members.includes(u.id)).map(r=>roomView(r,u.id))});
   if(method==='GET'&&p==='/api/events') { res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-store, must-revalidate','Connection':'keep-alive','X-Accel-Buffering':'no'}); res.write(': connected\n\n'); const set=clients.get(u.id)||new Set(); set.add(res); clients.set(u.id,set); const keep=setInterval(()=>{try{res.write(': ping\n\n');}catch{}},20000); req.on('close',()=>{clearInterval(keep);set.delete(res);if(!set.size)clients.delete(u.id);}); return; }
+  if(method==='POST'&&p==='/api/contacts/add') {
+    if(limitContactSearch(u.id))return error(res,429,'Muitas buscas por ID. Tente novamente mais tarde.');
+    const input=JSON.parse((await body(req)).toString('utf8'));
+    const publicId=String(input.publicId||'').trim();
+    if(!/^[1-9][0-9]{1,79}$/.test(publicId))return error(res,400,'Informe um ID numérico com pelo menos 2 dígitos.');
+    const target=db.users.find(x=>x.publicId===publicId);
+    if(!target)return error(res,404,'Nenhuma pessoa encontrada com esse ID.');
+    if(target.id===u.id)return error(res,400,'Esse ID pertence à sua própria conta.');
+    const pair=[u.id,target.id].sort().join(':');
+    let room=db.rooms.find(r=>r.directKey===pair);
+    const wasNew=!room;
+    if(!room) {
+      room={id:id(),name:'Conversa privada',directKey:pair,secret:rand(24),owner:u.id,members:[u.id,target.id],createdAt:new Date().toISOString()};
+      db.rooms.push(room);
+      await save();
+    }
+    for(const uid of room.members)push([uid],'room',roomView(room,uid));
+    return json(res,wasNew?201:200,{room:roomView(room,u.id),contact:safeUser(target)});
+  }
   if(method==='POST'&&p==='/api/rooms') { const input=JSON.parse((await body(req)).toString('utf8')); const name=String(input.name||'').trim(); if(name.length<2||name.length>60) return error(res,400,'Nome da conversa deve ter de 2 a 60 caracteres.'); const r={id:id(),secret:rand(24),owner:u.id,name,members:[u.id],createdAt:new Date().toISOString()}; db.rooms.push(r); await save(); const view=roomView(r,u.id); push([u.id],'room',view); return json(res,201,{room:view}); }
-  if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){r.members.push(u.id);await save();push(r.members,'room',roomView(r,u.id));} return json(res,200,{room:roomView(r,u.id)}); }
+  if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){r.members.push(u.id);await save();for(const uid of r.members)push([uid],'room',roomView(r,uid));} return json(res,200,{room:roomView(r,u.id)}); }
   const match=p.match(/^\/api\/rooms\/([0-9a-f-]{36})\/(messages|audio|files)$/);
   if(match) {
     const rid=match[1]; const r=member(u.id,rid); if(!r) return error(res,403,'Você não participa desta conversa.');
@@ -187,4 +245,5 @@ const server=http.createServer(async(req,res)=>{
 });
 if(process.env.NODE_ENV==='production'&&!pool)throw new Error('DATABASE_URL ausente: não é seguro usar armazenamento temporário em produção.');
 await startStorage();
+await ensurePublicIds();
 server.listen(PORT,'0.0.0.0',()=>console.log('VozChat ativo na porta '+PORT+' | storage: '+(pool?'PostgreSQL':DATA)));
