@@ -298,7 +298,7 @@ $('#groupDeleteButton').addEventListener('click',async()=>{
 let liveRadio=null;
 let livekitController=null;
 let livekitOpening=false;
-const talkButton=$('#flowtalkHold'),listenButton=$('#flowtalkListen');
+const talkButton=$('#flowtalkHold'),listenButton=$('#flowtalkListen'),talkStop=$('#flowtalkStop');
 function liveStatus(text){$('#flowtalkStatus').textContent=text;}
 function radioSend(session,payload){
   if(session.ws?.readyState===WebSocket.OPEN)session.ws.send(JSON.stringify(payload));
@@ -316,7 +316,8 @@ function resetRadioSpeaker(session){
   session.speakerNode?.port.postMessage({type:'reset'});
 }
 function stopLiveRadio(){
-  talkPointerId=null;talkKeyboardHeld=false;
+  endTalkHold();releasePushToTalk();
+  talkStop.hidden=true;
   if(livekitController){livekitController.release();livekitController.close();livekitController=null;}
   const session=liveRadio;
   if(!session)return;
@@ -391,6 +392,7 @@ function stopRadioTalk(){
   session.micNode?.port.postMessage({type:'enabled',value:false});
   talkButton.classList.remove('talking');
   talkButton.textContent='🎙 Segure para falar';
+  talkStop.hidden=true;
   radioSend(session,{type:'floor-release'});
   radioUI(session);
 }
@@ -480,6 +482,7 @@ async function openLiveRadio(){
         session.micNode.port.postMessage({type:'enabled',value:true});
         talkButton.classList.add('talking');
         talkButton.textContent='🔴 NO AR · solte para parar';
+        talkStop.hidden=false;
         liveStatus('🔴 SUA VOZ ESTÁ SAINDO AGORA');
         if(typeof navigator.vibrate==='function')try{navigator.vibrate(45);}catch{}
       }else if(msg.type==='floor-denied'){
@@ -499,41 +502,88 @@ async function openLiveRadio(){
 $('#flowtalkToggle').addEventListener('click',()=>{void openLiveRadio();});
 // PTT físico: o fim do toque SEMPRE encerra o LiveKit e o rádio antigo.
 let talkPointerId=null;
+let talkTouchId=null;
 let talkKeyboardHeld=false;
+let talkSafetyTimer=null;
+// Última proteção: o rádio nunca pode ficar transmitindo indefinidamente.
+const MAX_TALK_MS=60000;
 function releasePushToTalk(){
   if(livekitController)livekitController.release();
   if(liveRadio?.holding)stopRadioTalk();
+  talkStop.hidden=true;
 }
 function endTalkHold(){
-  if(talkPointerId===null&&!talkKeyboardHeld)return;
-  talkPointerId=null;
-  talkKeyboardHeld=false;
-  releasePushToTalk();
+  const wasHolding=talkPointerId!==null||talkTouchId!==null||talkKeyboardHeld;
+  talkPointerId=null;talkTouchId=null;talkKeyboardHeld=false;
+  clearTimeout(talkSafetyTimer);talkSafetyTimer=null;
+  if(wasHolding)releasePushToTalk();
 }
+function startTalkSafetyTimer(){
+  clearTimeout(talkSafetyTimer);
+  talkSafetyTimer=setTimeout(()=>{
+    if(talkPointerId!==null||talkTouchId!==null||talkKeyboardHeld){
+      endTalkHold();
+      releasePushToTalk();
+      toast('Transmissão encerrada por segurança após 60 segundos.');
+    }
+  },MAX_TALK_MS);
+}
+// Botão de emergência independente dos gestos. Fecha o rádio e para a captura física.
+talkStop.addEventListener('click',()=>{
+  endTalkHold();releasePushToTalk();stopLiveRadio();
+  toast('Microfone desligado. Toque no FlowTalk para abrir novamente.');
+});
 talkButton.addEventListener('pointerdown',e=>{
-  if(e.button!==0||talkButton.disabled||talkPointerId!==null)return;
+  if(e.button!==0||talkButton.disabled)return;
   e.preventDefault();
+  // Se o iPhone perdeu a soltura anterior, um novo toque SEMPRE desliga.
+  if(talkPointerId!==null||livekitController?.isHolding?.()){
+    endTalkHold();releasePushToTalk();return;
+  }
   talkPointerId=e.pointerId;
   try{talkButton.setPointerCapture(e.pointerId);}catch{}
-  startRadioTalk();
+  startRadioTalk();startTalkSafetyTimer();
 });
 for(const name of ['pointerup','pointercancel','lostpointercapture']){
   talkButton.addEventListener(name,e=>{
     if(talkPointerId===e.pointerId)endTalkHold();
   });
 }
-// Backup para Safari e Android: soltar o dedo fora do botão não deixa o canal preso.
+// A soltura fora do botão também deve interromper o rádio.
 for(const name of ['pointerup','pointercancel']){
   document.addEventListener(name,e=>{
     if(talkPointerId!==null&&e.pointerId===talkPointerId)endTalkHold();
   },{capture:true});
 }
-document.addEventListener('touchend',()=>{if(talkPointerId!==null)endTalkHold();},{passive:true});
-document.addEventListener('touchcancel',()=>{if(talkPointerId!==null)endTalkHold();},{passive:true});
+// Backup de toque nativo para Safari/WebKit quando pointerup/lostpointercapture falha.
+talkButton.addEventListener('touchstart',e=>{
+  if(talkButton.disabled||!e.changedTouches.length)return;
+  if(talkTouchId===null)talkTouchId=e.changedTouches[0].identifier;
+  if(talkPointerId===null&&!talkKeyboardHeld){
+    startRadioTalk();startTalkSafetyTimer();
+  }
+},{passive:true});
+for(const name of ['touchend','touchcancel']){
+  document.addEventListener(name,e=>{
+    if(talkTouchId!==null&&Array.from(e.changedTouches).some(t=>t.identifier===talkTouchId)){
+      endTalkHold();
+    }else if(talkPointerId!==null&&e.touches.length===0){
+      endTalkHold();
+    }
+  },{capture:true,passive:true});
+}
+document.addEventListener('touchmove',e=>{
+  if(talkTouchId===null)return;
+  const touch=Array.from(e.touches).find(t=>t.identifier===talkTouchId);
+  if(!touch){endTalkHold();return;}
+  const rect=talkButton.getBoundingClientRect();
+  if(touch.clientX<rect.left||touch.clientX>rect.right||
+     touch.clientY<rect.top||touch.clientY>rect.bottom)endTalkHold();
+},{capture:true,passive:true});
 talkButton.addEventListener('keydown',e=>{
   if(e.repeat||talkKeyboardHeld)return;
   if(e.code==='Space'||e.code==='Enter'){
-    e.preventDefault();talkKeyboardHeld=true;startRadioTalk();
+    e.preventDefault();talkKeyboardHeld=true;startRadioTalk();startTalkSafetyTimer();
   }
 });
 document.addEventListener('keyup',e=>{

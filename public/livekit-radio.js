@@ -8,6 +8,7 @@ export async function startLiveKitRadio({roomId,api,notify}) {
   const toggle = $('#flowtalkToggle'), panel = $('#flowtalkPanel');
   const button = $('#flowtalkHold'), speakers = $('#flowtalkAudioOutputs');
   const listen = $('#flowtalkListen'), audioToggle = $('#flowtalkAutoPlay');
+  const stopButton = $('#flowtalkStop');
   let alive=true,holding=false,granted=false,ready=false,clientId=null,pressEpoch=0;
   let speakerId=null,peerCount=0,speakerName=null,ws=null,microphone=null,published=false,micPromise=null;
   let room=null;
@@ -31,6 +32,7 @@ export async function startLiveKitRadio({roomId,api,notify}) {
   }
   function close(){
     if(!alive)return;alive=false;holding=false;granted=false;pressEpoch++;
+    stopButton.hidden=true;
     silenceMicrophone();
     try{microphone?.stop();}catch{}
     try{ws?.close();}catch{}
@@ -89,6 +91,7 @@ export async function startLiveKitRadio({roomId,api,notify}) {
       // não reativar o microfone depois do pointerup.
       if(!active()){if(!holding||!granted)silenceMicrophone();return;}
       button.classList.add('talking');button.textContent='🔴 NO AR · solte para parar';
+      stopButton.hidden=false;
       status('🔴 TRANSMITINDO VOZ AO VIVO');
     }catch(err){
       if(!alive)return;
@@ -118,9 +121,10 @@ export async function startLiveKitRadio({roomId,api,notify}) {
     send({type:'floor-release'});
     button.classList.remove('talking');
     button.textContent='🎙 Segure para falar';
+    stopButton.hidden=true;
     ui();
   }
-  panel.hidden=false;button.disabled=true;
+  panel.hidden=false;button.disabled=true;stopButton.hidden=true;
   toggle.classList.add('flowtalk-active');toggle.setAttribute('aria-pressed','true');
   listen.hidden=false;status('Conectando áudio profissional...');
   try{
@@ -168,5 +172,5 @@ export async function startLiveKitRadio({roomId,api,notify}) {
     close();
     throw err;
   }
-  return {close,press,release,enableAudio,listening};
+  return {close,press,release,enableAudio,listening,isHolding:()=>holding};
 }

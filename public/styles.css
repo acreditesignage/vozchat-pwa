@@ -163,3 +163,7 @@ body{
   .chat-top .back-button{min-width:28px;flex-shrink:0}
   .chat-title{min-width:0;overflow:hidden}
 }
+
+/* Fail-safe visível para desligar o microfone, sem depender de pointerup do iOS. */
+.flowtalk-stop{border:1px solid #bb2d47;background:#fff;color:#a41935;padding:11px 16px;border-radius:13px;font-size:14px;font-weight:850;min-height:44px;touch-action:manipulation}
+.flowtalk-stop:active{background:#ffe5eb}
