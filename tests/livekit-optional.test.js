@@ -58,7 +58,7 @@ test('LiveKit: tokens assinados só para membros de cada grupo',async t=>{
   assert.equal(jwt.video.canSubscribe,true);
   assert.equal(jwt.video.canPublish,true);
   assert.deepEqual(jwt.video.canPublishSources,['microphone']);
-  assert.ok(jwt.exp-jwt.iat<=601,'TTL curto');
+  assert.ok(jwt.exp-jwt.nbf<=601 && jwt.exp-jwt.nbf>0,'TTL curto');
   const join=await req('POST','/api/rooms/join',{invite:group.data.room.inviteUrl.split('join=')[1]},bob.cookie);
   assert.equal(join.status,200);
   const permittedBob=await req('POST','/api/talk/livekit-token',{roomId},bob.cookie);
