@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -258,6 +259,9 @@ async function api(req,res,url) {
   }
   if(method==='POST'&&p==='/api/rooms') { const input=JSON.parse((await body(req)).toString('utf8')); const name=String(input.name||'').trim(); if(name.length<2||name.length>60) return error(res,400,'Nome da conversa deve ter de 2 a 60 caracteres.'); const r={id:id(),secret:rand(24),owner:u.id,name,members:[u.id],createdAt:new Date().toISOString()}; db.rooms.push(r); await save(); const view=roomView(r,u.id); push([u.id],'room',view); return json(res,201,{room:view}); }
   if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&!r.directKey&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){r.members.push(u.id);await save();for(const uid of r.members)push([uid],'room',roomView(r,uid));} return json(res,200,{room:roomView(r,u.id)}); }
+  if(method==='GET'&&p==='/api/talk/ice-config') {
+    return json(res,200,{iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]});
+  }
   const groupMatch=p.match(/^\/api\/rooms\/([0-9a-f-]{36})(?:\/(members|leave))?(?:\/([1-9][0-9]{1,79}))?$/);
   if(groupMatch) {
     const rid=groupMatch[1],action=groupMatch[2]||'',targetId=groupMatch[3];
@@ -284,6 +288,7 @@ async function api(req,res,url) {
       if(!target||!r.members.includes(target.id))return error(res,404,'Participante não encontrado.');
       if(target.id===r.owner)return error(res,400,'O criador não pode se remover. Exclua o grupo se necessário.');
       r.members=r.members.filter(uid=>uid!==target.id);
+      talkCloseForMember(r.id,target.id);
       r.secret=rand(24); // revoga convites antigos que o participante removido possa ter guardado
       await save();publishGroupChange(r,[target.id]);
       return json(res,200,{room:roomView(r,u.id),members:groupMembers(r)});
@@ -291,6 +296,7 @@ async function api(req,res,url) {
     if(method==='POST'&&action==='leave'&&!targetId) {
       if(r.owner===u.id)return error(res,409,'O criador não pode sair. Exclua o grupo se necessário.');
       r.members=r.members.filter(uid=>uid!==u.id);
+      talkCloseForMember(r.id,u.id);
       r.secret=rand(24);
       await save();publishGroupChange(r,[u.id]);
       return json(res,200,{ok:true});
@@ -298,6 +304,7 @@ async function api(req,res,url) {
     if(method==='DELETE'&&!action) {
       if(r.owner!==u.id)return error(res,403,'Somente o criador pode excluir o grupo.');
       const recipients=[...r.members],audios=db.audios.filter(a=>a.roomId===rid),files=db.files.filter(f=>f.roomId===rid);
+      talkCloseRoom(rid);
       db.rooms=db.rooms.filter(g=>g.id!==rid);
       db.messages=db.messages.filter(m=>m.roomId!==rid);
       db.audios=db.audios.filter(a=>a.roomId!==rid);
@@ -332,17 +339,17 @@ async function api(req,res,url) {
       const message=await sendMsg(r,u,kind,{fileId,fileName:originalName,fileSize:bytes.length,fileMime:mime});
       return json(res,201,{message});
     }
-    if(method==='POST'&&(match[2]==='audio'||match[2]==='flowtalk')) {
+    if(method==='POST'&&match[2]==='flowtalk')
+      return error(res,410,'FlowTalk agora transmite voz ao vivo. Atualize o aplicativo e use o modo rádio.');
+    if(method==='POST'&&match[2]==='audio') {
       const mime=String(req.headers['content-type']||'').split(';')[0].toLowerCase();
       const extensions={'audio/webm':'webm','audio/mp4':'m4a','audio/ogg':'ogg','audio/mpeg':'mp3','audio/wav':'wav','audio/x-m4a':'m4a','audio/aac':'aac'};
       if(!extensions[mime]) return error(res,415,'Formato de áudio não suportado.');
-      const isFlowTalk=match[2]==='flowtalk';
       const duration=Math.max(0,Number(req.headers['x-audio-duration'])||0);
-      if(isFlowTalk&&duration>46)return error(res,413,'Chamados FlowTalk devem ter até 45 segundos.');
-      const raw=await body(req,isFlowTalk?8*1024*1024:12*1024*1024); if(raw.length<100) return error(res,400,'Áudio vazio ou muito curto.');
+      const raw=await body(req,12*1024*1024); if(raw.length<100) return error(res,400,'Áudio vazio ou muito curto.');
       const aid=id(),filename=`${aid}.${extensions[mime]}`; await writeBlob(aid,path.join(AUDIO,filename),raw);
       db.audios.push({id:aid,filename,mime,roomId:rid,bytes:raw.length});
-      return json(res,201,{message:await sendMsg(r,u,isFlowTalk?'flowtalk':'audio',{audioId:aid,duration:Math.min(isFlowTalk?45:600,duration)})});
+      return json(res,201,{message:await sendMsg(r,u,'audio',{audioId:aid,duration:Math.min(600,duration)})});
     }
   }
   const fileMatch=p.match(/^\/api\/files\/([0-9a-f-]{36})$/);
@@ -378,4 +385,113 @@ const server=http.createServer(async(req,res)=>{
 if(process.env.NODE_ENV==='production'&&!pool)throw new Error('DATABASE_URL ausente: não é seguro usar armazenamento temporário em produção.');
 await startStorage();
 await ensurePublicIds();
+
+// FlowTalk AO VIVO: sinalização WebRTC via WebSocket, sem gravar áudio ou SDP no banco.
+const talkWss=new WebSocketServer({noServer:true,maxPayload:65536,perMessageDeflate:false});
+const talkRooms=new Map(); // roomId -> conexões autenticadas
+const talkFloor=new Map(); // roomId -> conexão que detém o botão de fala
+function talkSend(ws,payload){if(ws.readyState===1)try{ws.send(JSON.stringify(payload));}catch{}}
+function talkBroadcast(rid,payload,except=null){
+  for(const peer of talkRooms.get(rid)||[])if(peer!==except)talkSend(peer,payload);
+}
+function talkLeave(ws){
+  const rid=ws.talkRoom;if(!rid)return;
+  const group=talkRooms.get(rid);
+  group?.delete(ws);
+  if(talkFloor.get(rid)===ws.talkId){
+    talkFloor.delete(rid);
+    talkBroadcast(rid,{type:'floor',clientId:null,name:null});
+  }
+  talkBroadcast(rid,{type:'peer-left',clientId:ws.talkId});
+  if(!group?.size){talkRooms.delete(rid);talkFloor.delete(rid);}
+  ws.talkRoom=null;
+}
+function talkCloseForMember(roomId,userId){
+  for(const peer of [...talkRooms.get(roomId)||[]])if(peer.talkUserId===userId)peer.close(4003,'Não participa mais do grupo');
+}
+function talkCloseRoom(roomId){
+  for(const peer of [...talkRooms.get(roomId)||[]])peer.close(4003,'Grupo encerrado');
+}
+function talkHandle(ws,payload){
+  if(!payload||typeof payload!=='object'||Array.isArray(payload))return;
+  if(!member(ws.talkUserId,ws.talkRoom)){ws.close(4003,'Sem acesso à conversa');return;}
+  const peers=talkRooms.get(ws.talkRoom);
+  if(payload.type==='signal'){
+    const dest=[...peers||[]].find(p=>p.talkId===payload.to && p!==ws);
+    const signal=payload.signal;
+    if(!dest || !signal || typeof signal!=='object')return;
+    if(signal.type==='offer'||signal.type==='answer'){
+      if(typeof signal.sdp!=='string'||signal.sdp.length>25000)return;
+      talkSend(dest,{type:'signal',from:ws.talkId,signal:{type:signal.type,sdp:signal.sdp}});
+    }else if(signal.type==='candidate'){
+      const c=signal.candidate;
+      if(!c||typeof c.candidate!=='string'||c.candidate.length>5000)return;
+      talkSend(dest,{type:'signal',from:ws.talkId,signal:{type:'candidate',candidate:{
+        candidate:c.candidate,sdpMid:typeof c.sdpMid==='string'?c.sdpMid.slice(0,40):null,
+        sdpMLineIndex:Number.isInteger(c.sdpMLineIndex)?c.sdpMLineIndex:null
+      }}});
+    }
+  }else if(payload.type==='floor-request'){
+    const active=talkFloor.get(ws.talkRoom);
+    if(active&&active!==ws.talkId)return talkSend(ws,{type:'floor-denied'});
+    talkFloor.set(ws.talkRoom,ws.talkId);
+    talkBroadcast(ws.talkRoom,{type:'floor',clientId:ws.talkId,name:ws.talkUserName});
+    talkSend(ws,{type:'floor-granted'});
+  }else if(payload.type==='floor-release'){
+    if(talkFloor.get(ws.talkRoom)===ws.talkId){
+      talkFloor.delete(ws.talkRoom);
+      talkBroadcast(ws.talkRoom,{type:'floor',clientId:null,name:null});
+    }
+  }
+}
+talkWss.on('connection',(ws,req,context)=>{
+  ws.talkId=crypto.randomUUID();
+  ws.talkUserId=context.user.id;ws.talkUserName=context.user.name;ws.talkRoom=context.rid;
+  const group=talkRooms.get(context.rid)||new Set();
+  talkRooms.set(context.rid,group);
+  talkSend(ws,{type:'ready',clientId:ws.talkId,
+    peers:[...group].map(p=>({clientId:p.talkId,name:p.talkUserName})),
+    speaker:[...group].find(p=>p.talkId===talkFloor.get(context.rid))?.talkUserName||null
+  });
+  group.add(ws);
+  talkBroadcast(context.rid,{type:'peer-joined',clientId:ws.talkId,name:ws.talkUserName},ws);
+  ws.isAlive=true;
+  ws.on('pong',()=>{ws.isAlive=true;});
+  ws.on('message',data=>{
+    try{talkHandle(ws,JSON.parse(data.toString()));}
+    catch{talkSend(ws,{type:'error',message:'Sinalização inválida.'});}
+  });
+  ws.on('close',()=>talkLeave(ws));
+  ws.on('error',()=>{});
+});
+const talkHeartbeat=setInterval(()=>{
+  for(const ws of talkWss.clients){
+    if(!ws.isAlive){ws.terminate();continue;}
+    ws.isAlive=false;ws.ping();
+  }
+},25000);
+talkHeartbeat.unref();
+server.on('upgrade',(req,socket,head)=>{
+  try{
+    const url=new URL(req.url,'http://localhost');
+    if(url.pathname!=='/api/talk/ws'){socket.destroy();return;}
+    const origin=req.headers.origin;
+    const expectedProto=req.headers['x-forwarded-proto']==='https'?'https:':'http:';
+    const expectedHost=String(req.headers['x-forwarded-host']||req.headers.host||'');
+    if(!origin || new URL(origin).host!==expectedHost || new URL(origin).protocol!==expectedProto){
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');socket.destroy();return;
+    }
+    const rid=url.searchParams.get('room')||'';
+    const user=userFrom(req);
+    if(!user || !/^[0-9a-f-]{36}$/i.test(rid) || !member(user.id,rid)){
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');socket.destroy();return;
+    }
+    const group=talkRooms.get(rid);
+    if(group?.size>=8){
+      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');socket.destroy();return;
+    }
+    talkWss.handleUpgrade(req,socket,head,ws=>talkWss.emit('connection',ws,req,{rid,user}));
+  }catch{socket.destroy();}
+});
+
 server.listen(PORT,'0.0.0.0',()=>console.log('VozChat ativo na porta '+PORT+' | storage: '+(pool?'PostgreSQL':DATA)));

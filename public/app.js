@@ -154,7 +154,7 @@ function connectEvents(){
   events.addEventListener('room-removed',event=>{
     const {roomId}=JSON.parse(event.data);rooms=rooms.filter(r=>r.id!==roomId);
     if(managedGroup===roomId){$('#groupManageDialog').close();managedGroup=null;}
-    if(current===roomId){stopFlowTalk(true);resetActiveChat();toast('Você não participa mais deste grupo.');}
+    if(current===roomId){stopLiveRadio();resetActiveChat();toast('Você não participa mais deste grupo.');}
     renderRooms();
   });
   events.addEventListener('message',event=>{
@@ -162,14 +162,14 @@ function connectEvents(){
     if(msg.senderId!==me?.id)incomingAlert(msg);
     if(current===msg.roomId&&!messages.some(m=>m.id===msg.id)){
       messages.push(msg);renderMessage(msg);scrollDown();
-      if(msg.type==='flowtalk'&&msg.senderId!==me?.id&&radioMode&&$('#flowtalkAutoPlay').checked)void autoPlayFlowTalk(msg);
+      
     }else if(current!==msg.roomId){
       const room=rooms.find(x=>x.id===msg.roomId);if(room)toast(`Nova mensagem em ${room.name}`);
     }
   });
   events.onerror=()=>{if(!navigator.onLine)$('#offline').hidden=false;};
 }
-async function openRoom(roomId){if(current!==roomId){stopFlowTalk(true);stopRadioPlayback();}current=roomId;$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();}catch(err){toast(err.message);} }
+async function openRoom(roomId){if(current!==roomId){stopLiveRadio();}current=roomId;$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();}catch(err){toast(err.message);} }
 function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;$('#headerAvatar').textContent=avatar(r.name);}
 function renderMessages(){const list=$('#messages');list.replaceChildren();if(!messages.length){const msg=document.createElement('div');msg.className='mini-welcome';msg.textContent=current&&rooms.find(r=>r.id===current)?.isDirect?'Conversa iniciada ✨\nDiga oi para começar.':'Conversa iniciada ✨\nCompartilhe o convite para outras pessoas entrarem e começarem a trocar mensagens.';list.append(msg);}let lastDay='';for(const m of messages){const key=day(m.createdAt);if(key!==lastDay){const divider=document.createElement('div');divider.className='day-divider';divider.textContent=key;list.append(divider);lastDay=key;}renderMessage(m);}scrollDown();}
 function formatSize(size){if(size<1024)return size+' B';if(size<1048576)return (size/1024).toFixed(0)+' KB';return (size/1048576).toFixed(1)+' MB';}
@@ -211,7 +211,7 @@ function resetActiveChat(){
   $('#messages').replaceChildren();
   $('#flowtalkPanel').hidden=true;
   $('#flowtalkToggle').setAttribute('aria-pressed','false');
-  radioMode=false;renderRooms();
+  renderRooms();
 }
 let managedGroup=null;
 async function refreshGroupMembers(){
@@ -265,7 +265,7 @@ $('#groupLeaveButton').addEventListener('click',async()=>{
   const id=managedGroup;if(!id||!confirm('Deseja sair deste grupo?'))return;
   try{
     await api('/api/rooms/'+id+'/leave',{method:'POST'});$('#groupManageDialog').close();
-    rooms=rooms.filter(r=>r.id!==id);if(current===id){stopFlowTalk(true);resetActiveChat();}
+    rooms=rooms.filter(r=>r.id!==id);if(current===id){stopLiveRadio();resetActiveChat();}
     toast('Você saiu do grupo.');
   }catch(err){toast(err.message);}
 });
@@ -274,95 +274,214 @@ $('#groupDeleteButton').addEventListener('click',async()=>{
   const button=$('#groupDeleteButton');button.disabled=true;
   try{
     await api('/api/rooms/'+id,{method:'DELETE'});$('#groupManageDialog').close();
-    rooms=rooms.filter(r=>r.id!==id);if(current===id){stopFlowTalk(true);resetActiveChat();}
+    rooms=rooms.filter(r=>r.id!==id);if(current===id){stopLiveRadio();resetActiveChat();}
     toast('Grupo excluído definitivamente.');
   }catch(err){toast(err.message);}finally{button.disabled=false;}
 });
-// FlowTalk: PTT de áudios curtos, enviado ao soltar o botão.
-let radioMode=false,radioHolding=false,radioRecorder=null,radioStream=null,radioPieces=[],radioCancelled=false,radioStarted=0,radioRoom=null,radioTimer=null,radioPlayback=null,radioPlaybackQueue=[],radioPlaying=false;
-const talkButton=$('#flowtalkHold');
-function radioStatus(text){$('#flowtalkStatus').textContent=text;}
-function stopRadioPlayback(){
-  if(radioPlayback){radioPlayback.pause();radioPlayback.src='';radioPlayback=null;}
-  radioPlaybackQueue=[];radioPlaying=false;
+// FlowTalk AO VIVO via WebRTC: fala enquanto o botão está pressionado, sem gravar no servidor.
+let liveRadio=null;
+const talkButton=$('#flowtalkHold'),listenButton=$('#flowtalkListen'),talkOutputs=$('#flowtalkAudioOutputs');
+function liveStatus(label){$('#flowtalkStatus').textContent=label;}
+function liveSend(session,payload){
+  if(session.ws?.readyState===WebSocket.OPEN)session.ws.send(JSON.stringify(payload));
 }
-async function autoPlayFlowTalk(msg){
-  radioPlaybackQueue.push(msg);
-  if(radioPlaying)return;radioPlaying=true;
-  try{
-    while(radioPlaybackQueue.length&&radioMode&&current){
-      const item=radioPlaybackQueue.shift();if(item.roomId!==current)continue;
-      radioPlayback=new Audio('/api/audio/'+encodeURIComponent(item.audioId));radioPlayback.preload='auto';
-      const player=radioPlayback;
-      try{
-        await player.play();
-        await new Promise(resolve=>{player.onended=resolve;player.onerror=resolve;});
-      }catch{toast('📻 Chamado recebido. Toque no áudio para ouvir.');}
-      radioPlayback=null;
-    }
-  }finally{radioPlaying=false;}
+function updateLiveControls(session){
+  if(liveRadio!==session)return;
+  const connected=[...session.peers.values()].filter(p=>p.pc.connectionState==='connected').length;
+  const other=session.speakerId&&session.speakerId!==session.clientId;
+  talkButton.disabled=!session.ready||!connected||!!other;
+  $('#flowtalkParticipants').textContent=connected+' ouvindo · '+session.peers.size+' no canal';
+  if(other)liveStatus('📻 '+(session.speakerName||'Outra pessoa')+' está falando');
+  else if(!session.holding)liveStatus(connected?'Canal livre. Segure para falar AO VIVO.':'Aguardando outro aparelho conectar ao rádio...');
 }
-function stopFlowTalk(cancel=false){
-  radioHolding=false;if(cancel)radioCancelled=true;
-  if(radioTimer){clearInterval(radioTimer);radioTimer=null;}
-  talkButton.classList.remove('talking');
-  if(radioRecorder?.state==='recording')radioRecorder.stop();
-  radioStatus(cancel?'Transmissão cancelada.':'Solte para enviar · pronto para falar.');
+function closeLivePeer(session,peerId){
+  const entry=session.peers.get(peerId);if(!entry)return;
+  session.peers.delete(peerId);
+  try{entry.audio?.pause();entry.audio?.remove();entry.pc.close();}catch{}
+  updateLiveControls(session);
 }
-async function beginFlowTalk(){
-  if(!radioMode||!current||radioHolding||!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)return;
-  if(recorder?.state==='recording'){toast('Finalize o áudio atual antes do FlowTalk.');return;}
-  radioHolding=true;radioCancelled=false;radioRoom=current;
-  radioStatus('Solicitando microfone...');talkButton.classList.add('talking');
-  if(typeof navigator.vibrate==='function')try{navigator.vibrate(50);}catch{}
-  let stream;
-  try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});}
-  catch{radioHolding=false;talkButton.classList.remove('talking');radioStatus('Permita o microfone no navegador.');return;}
-  if(!radioHolding||radioCancelled||radioRoom!==current){stream.getTracks().forEach(t=>t.stop());return;}
-  radioStream=stream;radioPieces=[];
-  const mime=supportedMime(),instance=new MediaRecorder(stream,mime?{mimeType:mime}:{});radioRecorder=instance;
-  const targetRoom=radioRoom;
-  instance.ondataavailable=e=>{if(e.data.size)radioPieces.push(e.data);};
-  instance.onstop=async()=>{
-    stream.getTracks().forEach(t=>t.stop());radioStream=null;
-    if(radioCancelled)return;
-    const secs=Math.max(.1,(Date.now()-radioStarted)/1000),mime=instance.mimeType.split(';')[0]||'audio/webm';
-    const blob=new Blob(radioPieces,{type:mime});
-    if(blob.size<100){toast('Chamado muito curto.');return;}
-    radioStatus('Transmitindo chamado...');
-    try{
-      const res=await fetch('/api/rooms/'+targetRoom+'/flowtalk',{
-        method:'POST',credentials:'same-origin',
-        headers:{'Content-Type':mime,'X-Audio-Duration':String(Math.min(secs,45))},body:blob
-      });
-      const result=await res.json().catch(()=>({}));
-      if(!res.ok)throw Error(result.error||'Erro na transmissão.');
-      radioStatus('📻 Transmitido! Segure para falar novamente.');
-    }catch(err){toast(err.message);radioStatus('Falha ao transmitir. Tente novamente.');}
+function stopLiveRadio(){
+  const session=liveRadio;if(!session)return;
+  liveRadio=null;
+  session.holding=false;session.granted=false;
+  if(session.track)session.track.enabled=false;
+  liveSend(session,{type:'floor-release'});
+  try{session.ws?.close(1000,'Rádio desligado');}catch{}
+  for(const peerId of [...session.peers.keys()])closeLivePeer(session,peerId);
+  try{session.stream?.getTracks().forEach(t=>t.stop());}catch{}
+  talkOutputs.replaceChildren();
+  talkButton.classList.remove('talking');talkButton.disabled=true;talkButton.textContent='🎙 Segure para falar';
+  $('#flowtalkPanel').hidden=true;$('#flowtalkToggle').classList.remove('flowtalk-active');
+  $('#flowtalkToggle').setAttribute('aria-pressed','false');
+  liveStatus('Rádio desligado.');
+}
+function ensurePeer(session,peerId){
+  if(!peerId||peerId===session.clientId)return null;
+  let peer=session.peers.get(peerId);
+  if(peer)return peer;
+  const pc=new RTCPeerConnection({iceServers:session.iceServers});
+  peer={pc,pendingIce:[],audio:null};
+  session.peers.set(peerId,peer);
+  pc.addTrack(session.track,session.stream);
+  pc.onicecandidate=e=>{
+    if(e.candidate&&liveRadio===session)liveSend(session,{type:'signal',to:peerId,signal:{type:'candidate',candidate:e.candidate.toJSON()}});
   };
-  instance.start(200);radioStarted=Date.now();
-  radioStatus('🔴 Transmitindo quando soltar... 0s');
-  radioTimer=setInterval(()=>{
-    const sec=(Date.now()-radioStarted)/1000;
-    radioStatus('🔴 Gravando · '+Math.floor(sec)+'s');
-    if(sec>=44.5)stopFlowTalk();
-  },250);
+  pc.ontrack=e=>{
+    if(liveRadio!==session)return;
+    const media=e.streams[0]||new MediaStream([e.track]);
+    let audio=peer.audio;
+    if(!audio){
+      audio=document.createElement('audio');audio.autoplay=true;audio.playsInline=true;
+      audio.setAttribute('playsinline','');talkOutputs.append(audio);peer.audio=audio;
+    }
+    audio.srcObject=media;audio.muted=!$('#flowtalkAutoPlay').checked;
+    audio.play().catch(()=>{if(liveRadio===session)listenButton.hidden=false;});
+  };
+  pc.onconnectionstatechange=()=>{
+    if(liveRadio!==session)return;
+    if(pc.connectionState==='failed'){liveStatus('Conexão de voz falhou. Saia e entre no rádio novamente.');}
+    updateLiveControls(session);
+  };
+  return peer;
 }
-$('#flowtalkToggle').addEventListener('click',()=>{
-  radioMode=!radioMode;$('#flowtalkPanel').hidden=!radioMode;
-  $('#flowtalkToggle').setAttribute('aria-pressed',String(radioMode));
-  $('#flowtalkToggle').classList.toggle('flowtalk-active',radioMode);
-  if(!radioMode){stopFlowTalk(true);stopRadioPlayback();}
-  else{unlockAlertAudio();radioStatus('Segure o botão para falar. Solte para enviar.');}
-});
+async function offerToPeer(session,peerId){
+  const peer=ensurePeer(session,peerId);
+  if(!peer||liveRadio!==session)return;
+  try{
+    const desc=await peer.pc.createOffer();
+    await peer.pc.setLocalDescription(desc);
+    liveSend(session,{type:'signal',to:peerId,signal:{type:'offer',sdp:peer.pc.localDescription.sdp}});
+  }catch(e){if(liveRadio===session)liveStatus('Não foi possível conectar o áudio.');}
+}
+async function processTalkSignal(session,msg){
+  if(liveRadio!==session)return;
+  const peer=ensurePeer(session,msg.from),signal=msg.signal;
+  if(!peer||!signal)return;
+  try{
+    if(signal.type==='candidate'){
+      if(peer.pc.remoteDescription)await peer.pc.addIceCandidate(signal.candidate);
+      else peer.pendingIce.push(signal.candidate);
+    }else if(signal.type==='offer'){
+      await peer.pc.setRemoteDescription({type:'offer',sdp:signal.sdp});
+      for(const ice of peer.pendingIce.splice(0))await peer.pc.addIceCandidate(ice);
+      const answer=await peer.pc.createAnswer();
+      await peer.pc.setLocalDescription(answer);
+      liveSend(session,{type:'signal',to:msg.from,signal:{type:'answer',sdp:peer.pc.localDescription.sdp}});
+    }else if(signal.type==='answer'){
+      await peer.pc.setRemoteDescription({type:'answer',sdp:signal.sdp});
+      for(const ice of peer.pendingIce.splice(0))await peer.pc.addIceCandidate(ice);
+    }
+  }catch(err){if(liveRadio===session)liveStatus('Falha na conexão P2P. Tente entrar novamente.');}
+}
+function beginLiveTransmission(){
+  const session=liveRadio;
+  if(!session||!session.ready||session.holding||talkButton.disabled)return;
+  session.holding=true;session.granted=false;
+  liveStatus('Solicitando canal livre...');
+  liveSend(session,{type:'floor-request'});
+}
+function endLiveTransmission(){
+  const session=liveRadio;if(!session)return;
+  session.holding=false;session.granted=false;
+  if(session.track)session.track.enabled=false;
+  talkButton.classList.remove('talking');talkButton.textContent='🎙 Segure para falar';
+  liveSend(session,{type:'floor-release'});
+  updateLiveControls(session);
+}
+async function startLiveRadio(){
+  if(liveRadio){stopLiveRadio();return;}
+  if(!current||!navigator.mediaDevices?.getUserMedia||!window.RTCPeerConnection||!window.WebSocket){
+    toast('Este navegador não suporta rádio em tempo real.');return;
+  }
+  // Pedir acesso ao microfone diretamente no clique para funcionar no Safari/iPhone.
+  const micPromise=navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+  const session={roomId:current,ws:null,clientId:null,stream:null,track:null,peers:new Map(),iceServers:[],ready:false,holding:false,granted:false,speakerId:null,speakerName:null};
+  liveRadio=session;
+  $('#flowtalkPanel').hidden=false;
+  $('#flowtalkToggle').classList.add('flowtalk-active');
+  $('#flowtalkToggle').setAttribute('aria-pressed','true');
+  talkButton.disabled=true;
+  liveStatus('Abrindo canal de voz ao vivo...');
+  unlockAlertAudio();
+  try{
+    const configPromise=api('/api/talk/ice-config');
+    const [stream,config]=await Promise.all([micPromise,configPromise]);
+    if(liveRadio!==session){stream.getTracks().forEach(t=>t.stop());return;}
+    session.stream=stream;session.track=stream.getAudioTracks()[0];
+    if(!session.track)throw new Error('Nenhum microfone disponível.');
+    session.track.enabled=false;
+    session.iceServers=Array.isArray(config.iceServers)?config.iceServers:[];
+    session.track.onended=()=>{if(liveRadio===session){toast('Microfone desconectado.');stopLiveRadio();}};
+    const protocol=location.protocol==='https:'?'wss:':'ws:';
+    const ws=new WebSocket(protocol+'//'+location.host+'/api/talk/ws?room='+encodeURIComponent(session.roomId));
+    session.ws=ws;
+    ws.onmessage=event=>{
+      if(liveRadio!==session)return;
+      let msg;try{msg=JSON.parse(event.data);}catch{return;}
+      if(msg.type==='ready'){
+        session.clientId=msg.clientId;session.ready=true;
+        session.speakerName=msg.speaker||null;session.speakerId=msg.speaker?'other':null;
+        updateLiveControls(session);
+      }else if(msg.type==='peer-joined'){
+        void offerToPeer(session,msg.clientId);
+      }else if(msg.type==='peer-left'){
+        closeLivePeer(session,msg.clientId);
+        if(session.speakerId===msg.clientId){session.speakerId=null;session.speakerName=null;}
+        updateLiveControls(session);
+      }else if(msg.type==='signal'){
+        void processTalkSignal(session,msg);
+      }else if(msg.type==='floor'){
+        session.speakerId=msg.clientId;session.speakerName=msg.name;
+        updateLiveControls(session);
+      }else if(msg.type==='floor-granted'){
+        if(!session.holding){liveSend(session,{type:'floor-release'});return;}
+        session.granted=true;session.track.enabled=true;
+        talkButton.classList.add('talking');talkButton.textContent='🔴 NO AR · solte para parar';
+        liveStatus('🔴 SUA VOZ ESTÁ SAINDO AGORA');
+        if(typeof navigator.vibrate==='function')try{navigator.vibrate(45);}catch{}
+      }else if(msg.type==='floor-denied'){
+        session.holding=false;session.granted=false;
+        liveStatus('Canal ocupado. Aguarde a outra pessoa terminar.');
+      }else if(msg.type==='error'){liveStatus(msg.message||'Falha no rádio.');}
+    };
+    ws.onerror=()=>{if(liveRadio===session)liveStatus('Falha na conexão de voz.');};
+    ws.onclose=()=>{if(liveRadio===session){toast('Rádio desconectado. Abra novamente.');stopLiveRadio();}};
+  }catch(e){
+    if(liveRadio===session){toast(e.name==='NotAllowedError'?'Permita o microfone nas configurações.':(e.message||'Rádio indisponível.'));stopLiveRadio();}
+  }
+}
+$('#flowtalkToggle').addEventListener('click',()=>{void startLiveRadio();});
 talkButton.addEventListener('pointerdown',e=>{
-  if(e.button!==0||!radioMode)return;
-  e.preventDefault();try{talkButton.setPointerCapture(e.pointerId);}catch{}
-  void beginFlowTalk();
+  if(e.button!==0)return;
+  e.preventDefault();
+  try{talkButton.setPointerCapture(e.pointerId);}catch{}
+  beginLiveTransmission();
 });
-for(const ev of ['pointerup','pointercancel','lostpointercapture'])talkButton.addEventListener(ev,()=>{
-  if(radioHolding)stopFlowTalk(ev!=='pointerup');
+for(const eventType of ['pointerup','pointercancel','lostpointercapture']){
+  talkButton.addEventListener(eventType,()=>{if(liveRadio?.holding)endLiveTransmission();});
+}
+talkButton.addEventListener('keydown',e=>{
+  if(e.repeat)return;
+  if(e.code==='Space'||e.code==='Enter'){e.preventDefault();beginLiveTransmission();}
 });
+talkButton.addEventListener('keyup',e=>{
+  if(e.code==='Space'||e.code==='Enter'){e.preventDefault();endLiveTransmission();}
+});
+$('#flowtalkAutoPlay').addEventListener('change',()=>{
+  for(const audio of talkOutputs.querySelectorAll('audio')){
+    audio.muted=!$('#flowtalkAutoPlay').checked;
+    if(!audio.muted)audio.play().catch(()=>{});
+  }
+});
+listenButton.addEventListener('click',()=>{
+  unlockAlertAudio();
+  for(const audio of talkOutputs.querySelectorAll('audio'))audio.play().catch(()=>toast('Áudio bloqueado pelo navegador.'));
+  toast('Alto-falante habilitado. Mantenha o rádio aberto.');
+});
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden&&liveRadio?.holding)endLiveTransmission();
+});
+window.addEventListener('pagehide',()=>stopLiveRadio());
 
 function newConversation(){$('#newRoomName').value='';openDialog('roomDialog');setTimeout(()=>$('#newRoomName').focus(),100);}
 $('#newRoom').addEventListener('click',newConversation);$('#emptyCreate').addEventListener('click',newConversation);
@@ -397,6 +516,7 @@ $('#logout').addEventListener('click',async()=>{
       if(sub){await api('/api/push/unsubscribe',{method:'POST',data:{endpoint:sub.endpoint}});await sub.unsubscribe();}
     }
   }catch{}
+  stopLiveRadio();
   try{localStorage.removeItem('vozchat_push_uid');}catch{}
   try{await api('/api/logout',{method:'POST'});}catch{}
   showAuth();authMode(false);

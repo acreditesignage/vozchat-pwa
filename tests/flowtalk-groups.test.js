@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import WebSocket from 'ws';
 
 async function availablePort(){
   const server=net.createServer();
@@ -57,15 +58,65 @@ test('FlowTalk e gestão de grupos: administrador, revogação, saída e exclus�
   assert.equal(noPrivilege.status,403);
   const addC=await req('POST',groupUrl+'/members',{publicId:c.data.user.publicId},a.cookie);
   assert.equal(addC.status,201);assert.equal(addC.data.members.length,3);
+  // FlowTalk AO VIVO: sem upload nem histórico. Canal WebSocket serve somente para sinalização WebRTC.
   const audioBytes=new Uint8Array(240).fill(45);
-  const radio=await req('POST',groupUrl+'/flowtalk',audioBytes,a.cookie,{'Content-Type':'audio/webm','X-Audio-Duration':'1'});
-  assert.equal(radio.status,201);assert.equal(radio.data.message.type,'flowtalk');
-  const radioRead=await req('GET','/api/audio/'+radio.data.message.audioId,undefined,b.cookie);
-  assert.equal(radioRead.status,200);assert.equal(radioRead.data.byteLength,240);
-  const radioDenied=await req('POST',groupUrl+'/flowtalk',audioBytes,d.cookie,{'Content-Type':'audio/webm'});
-  assert.equal(radioDenied.status,403);
-  const radioTooLong=await req('POST',groupUrl+'/flowtalk',audioBytes,a.cookie,{'Content-Type':'audio/webm','X-Audio-Duration':'50'});
-  assert.equal(radioTooLong.status,413);
+  const oldRadio=await req('POST',groupUrl+'/flowtalk',audioBytes,a.cookie,{'Content-Type':'audio/webm','X-Audio-Duration':'1'});
+  assert.equal(oldRadio.status,410);
+  const iceConfig=await req('GET','/api/talk/ice-config',undefined,a.cookie);
+  assert.equal(iceConfig.status,200);
+  assert.ok(iceConfig.data.iceServers.length>0);
+  function openRadio(cookie){
+    return new Promise((resolve,reject)=>{
+      const ws=new WebSocket('ws://127.0.0.1:'+port+'/api/talk/ws?room='+rid,{
+        headers:{cookie,Origin:base}
+      });
+      const buffer=[],waiters=[];
+      const conn={
+        ws,buffer,
+        wait(type){
+          const index=buffer.findIndex(m=>m.type===type);
+          if(index>=0)return Promise.resolve(buffer.splice(index,1)[0]);
+          return new Promise((yes,no)=>{
+            const timer=setTimeout(()=>{const at=waiters.findIndex(w=>w.yes===yes);if(at>=0)waiters.splice(at,1);no(new Error('WebSocket sem mensagem '+type));},2500);
+            waiters.push({type,yes:v=>{clearTimeout(timer);yes(v);},timer});
+          });
+        },
+        send(x){ws.send(JSON.stringify(x));}
+      };
+      ws.on('message',v=>{
+        try{
+          const msg=JSON.parse(String(v));
+          const at=waiters.findIndex(w=>w.type===msg.type);
+          if(at>=0){const waiter=waiters.splice(at,1)[0];clearTimeout(waiter.timer);waiter.yes(msg);}
+          else buffer.push(msg);
+        }catch{}
+      });
+      ws.once('open',()=>resolve(conn));ws.once('error',reject);
+    });
+  }
+  const radioA=await openRadio(a.cookie);
+  const radioAReady=await radioA.wait('ready');
+  const radioB=await openRadio(b.cookie);
+  const radioBReady=await radioB.wait('ready');
+  assert.equal(radioBReady.peers.length,1);
+  assert.equal((await radioA.wait('peer-joined')).clientId,radioBReady.clientId);
+  // Sinalização de oferta/ICE passa entre participantes autorizados.
+  radioA.send({type:'signal',to:radioBReady.clientId,signal:{type:'offer',sdp:'v=0\r\n'}});
+  assert.equal((await radioB.wait('signal')).signal.type,'offer');
+  radioA.send({type:'floor-request'});
+  assert.equal((await radioA.wait('floor-granted')).type,'floor-granted');
+  assert.equal((await radioB.wait('floor')).name,'Alice');
+  radioB.send({type:'floor-request'});
+  assert.equal((await radioB.wait('floor-denied')).type,'floor-denied');
+  radioA.send({type:'floor-release'});
+  assert.equal((await radioB.wait('floor')).clientId,null);
+  radioB.send({type:'floor-request'});
+  assert.equal((await radioB.wait('floor-granted')).type,'floor-granted');
+  radioB.send({type:'floor-release'});
+  const cRadio=await openRadio(c.cookie);
+  assert.equal((await cRadio.wait('ready')).peers.length,2);
+  const noSaved=await req('GET',groupUrl+'/messages',undefined,b.cookie);
+  assert.deepEqual(noSaved.data.messages,[]);
   const badRemove=await req('DELETE',groupUrl+'/members/'+a.data.user.publicId,undefined,b.cookie);
   assert.equal(badRemove.status,403);
   const ownerRemoveSelf=await req('DELETE',groupUrl+'/members/'+a.data.user.publicId,undefined,a.cookie);
@@ -73,6 +124,7 @@ test('FlowTalk e gestão de grupos: administrador, revogação, saída e exclus�
   const oldInvite=room.data.room.inviteUrl.split('join=')[1];
   const kicked=await req('DELETE',groupUrl+'/members/'+c.data.user.publicId,undefined,a.cookie);
   assert.equal(kicked.status,200);assert.equal(kicked.data.members.length,2);
+  await new Promise((resolve,reject)=>{if(cRadio.ws.readyState===WebSocket.CLOSED)return resolve();cRadio.ws.once('close',resolve);setTimeout(()=>reject(new Error('Removido continua no rádio')),2500);});
   const removedRead=await req('GET',groupUrl+'/messages',undefined,c.cookie);
   assert.equal(removedRead.status,403);
   const staleInvite=await req('POST','/api/rooms/join',{invite:oldInvite},c.cookie);
@@ -89,13 +141,14 @@ test('FlowTalk e gestão de grupos: administrador, revogação, saída e exclus�
   assert.equal(deleted.status,200);
   const ownerGone=await req('GET',groupUrl+'/members',undefined,a.cookie);
   assert.equal(ownerGone.status,404);
-  const goneAudio=await req('GET','/api/audio/'+radio.data.message.audioId,undefined,a.cookie);
-  assert.equal(goneAudio.status,404);
+  await new Promise((resolve,reject)=>{if(radioA.ws.readyState===WebSocket.CLOSED)return resolve();radioA.ws.once('close',resolve);setTimeout(()=>reject(new Error('Rádio continua conectado após excluir grupo')),2500);});
+  try{radioB.ws.close();}catch{}
   const direct=await req('POST','/api/contacts/add',{publicId:b.data.user.publicId},a.cookie);
   assert.equal(direct.status,201);
   const deniedDirectGroup=await req('DELETE','/api/rooms/'+direct.data.room.id,undefined,a.cookie);
   assert.equal(deniedDirectGroup.status,404);
   const html=(await fetch(base+'/app')).status;assert.equal(html,200);
   const appJs=await (await fetch(base+'/app.js')).text();
-  assert.match(appJs,/flowtalkHold|groupManageDialog/);
+  assert.match(appJs,/RTCPeerConnection|groupManageDialog/);
+  assert.doesNotMatch(appJs,/radioPieces|new Blob\(radioPieces/);
 });
