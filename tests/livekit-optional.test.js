@@ -22,6 +22,8 @@ test('LiveKit: tokens assinados só para membros de cada grupo',async t=>{
       LIVEKIT_API_SECRET:'dev-test-this-key-must-never-be-used-in-production-12345'},
     stdio:'pipe'
   });
+  let serverError='';
+  backend.stderr.on('data',chunk=>{serverError+=String(chunk).slice(0,1000);});
   t.after(()=>{backend.kill('SIGTERM');fs.rmSync(dataDir,{recursive:true,force:true});});
   const base='http://127.0.0.1:'+port;
   let ready=false;
@@ -47,7 +49,7 @@ test('LiveKit: tokens assinados só para membros de cada grupo',async t=>{
   const denied=await req('POST','/api/talk/livekit-token',{roomId},bob.cookie);
   assert.equal(denied.status,403);
   const permitted=await req('POST','/api/talk/livekit-token',{roomId},alice.cookie);
-  assert.equal(permitted.status,200);
+  assert.equal(permitted.status,200,'Token endpoint error: '+JSON.stringify(permitted.data)+'; server: '+serverError.slice(-600));
   assert.equal(permitted.data.url,'wss://unit-test.livekit.cloud');
   const [,payload]=permitted.data.token.split('.');
   const jwt=JSON.parse(Buffer.from(payload,'base64url').toString('utf8'));
