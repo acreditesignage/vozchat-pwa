@@ -1,4 +1,4 @@
-const VERSION='vozchat-shell-v6';
+const VERSION='vozchat-shell-v7';
 const ASSETS=['/app','/styles.css','/app.js','/talk-worklet.js','/icons/icon.svg','/icons/icon-maskable.svg','/icons/icon-192.png','/icons/icon-512.png','/manifest.webmanifest'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(VERSION).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==VERSION).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
@@ -9,7 +9,8 @@ self.addEventListener('push',event=>{
   const title=String(payload.title||'VozChat').slice(0,70);
   const body=String(payload.body||'Você recebeu uma nova mensagem.').slice(0,140);
   const safeId=/^[0-9a-f-]{36}$/i.test(payload.roomId||'')?payload.roomId:'';
-  const url=safeId?'/app?open='+encodeURIComponent(safeId):'/app';
+  const isTalk=payload.kind==='talk';
+  const url=safeId?'/app?open='+encodeURIComponent(safeId)+(isTalk?'&talk=1':''):'/app';
   event.waitUntil((async()=>{
     await self.registration.showNotification(title,{
       body,
@@ -17,7 +18,9 @@ self.addEventListener('push',event=>{
       badge:'/icons/icon-192.png',
       tag:typeof payload.tag==='string'?payload.tag.slice(0,90):'vozchat-message',
       renotify:true,
-      vibrate:[100,60,100],
+      vibrate:isTalk?[180,100,180,100,180]:[100,60,100],
+      requireInteraction:isTalk,
+      timestamp:Date.now(),
       data:{url,roomId:safeId}
     });
     if('setAppBadge' in self.navigator)try{await self.navigator.setAppBadge();}catch{}

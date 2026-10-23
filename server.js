@@ -390,6 +390,44 @@ await ensurePublicIds();
 const talkWss=new WebSocketServer({noServer:true,maxPayload:4096,perMessageDeflate:false});
 const talkRooms=new Map(); // roomId -> conexões autenticadas
 const talkFloor=new Map(); // roomId -> conexão que detém o botão de fala
+
+const talkAlertCooldown=new Map();
+async function notifyTalkStart(ws){
+  const room=member(ws.talkUserId,ws.talkRoom);
+  if(!room)return;
+  const now=Date.now(),key=room.id+':'+ws.talkUserId;
+  const last=talkAlertCooldown.get(key)||0;
+  if(now-last<12000)return;
+  talkAlertCooldown.set(key,now);
+  if(talkAlertCooldown.size>2500){
+    for(const [k,t] of talkAlertCooldown)if(now-t>60000)talkAlertCooldown.delete(k);
+  }
+  const listeners=new Set([...talkRooms.get(room.id)||[]].map(peer=>peer.talkUserId));
+  const recipients=room.members.filter(uid=>uid!==ws.talkUserId);
+  for(const uid of recipients)push([uid],'talk-incoming',{roomId:room.id,senderName:ws.talkUserName});
+  if(!webPush)return;
+  // Apenas pessoas sem rádio conectado precisam de convite por push.
+  const inactive=new Set(recipients.filter(uid=>!listeners.has(uid)));
+  const records=(db.pushSubscriptions||[]).filter(p=>inactive.has(p.uid));
+  if(!records.length)return;
+  const payload=JSON.stringify({
+    title:'📻 '+ws.talkUserName+' chamou no FlowTalk',
+    body:'Toque para entrar no rádio ao vivo.',
+    roomId:room.id,kind:'talk',url:'/app?open='+encodeURIComponent(room.id)+'&talk=1',
+    tag:'vozchat-talk-'+room.id
+  });
+  let changed=false;
+  await Promise.allSettled(records.map(async record=>{
+    try{await webPush.sendNotification(record.subscription,payload,{TTL:45,urgency:'high',timeout:7000});}
+    catch(e){
+      if(e?.statusCode===404||e?.statusCode===410){
+        db.pushSubscriptions=db.pushSubscriptions.filter(s=>s!==record);changed=true;
+      }else console.warn('FlowTalk push erro',e?.statusCode||'network');
+    }
+  }));
+  if(changed)await save();
+}
+
 function talkSend(ws,payload){if(ws.readyState===1)try{ws.send(JSON.stringify(payload));}catch{}}
 function talkBroadcast(rid,payload,except=null){
   for(const peer of talkRooms.get(rid)||[])if(peer!==except)talkSend(peer,payload);
@@ -422,6 +460,7 @@ function talkHandle(ws,payload){
     talkFloor.set(ws.talkRoom,ws.talkId);
     talkBroadcast(ws.talkRoom,{type:'floor',clientId:ws.talkId,name:ws.talkUserName});
     talkSend(ws,{type:'floor-granted'});
+    void notifyTalkStart(ws).catch(e=>console.warn('FlowTalk alerta',e?.message));
   }else if(payload.type==='floor-release'){
     if(talkFloor.get(ws.talkRoom)===ws.talkId){
       talkFloor.delete(ws.talkRoom);

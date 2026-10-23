@@ -179,6 +179,12 @@ test('FlowTalk e gestão de grupos: administrador, revogação, saída e exclus�
   const html=(await fetch(base+'/app')).status;assert.equal(html,200);
   const appJs=await (await fetch(base+'/app.js')).text();
   assert.match(appJs,/AudioWorkletNode|groupManageDialog/);
+  assert.match(appJs,/async function acquireRadioMic/);
+  assert.match(appJs,/talk-incoming/);
+  assert.doesNotMatch(appJs,/talkButton.disabled=!session.ready\|\|count<1/);
+  const workerSource=await (await fetch(base+'/sw.js')).text();
+  assert.match(workerSource,/&talk=1/);
+
   assert.doesNotMatch(appJs,/radioPieces|new Blob\(radioPieces/);
   const worklet=await (await fetch(base+'/talk-worklet.js')).text();
   assert.match(worklet,/vozchat-mic-stream/);

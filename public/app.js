@@ -2,6 +2,7 @@ const $ = q => document.querySelector(q);
 let me=null, rooms=[], current=null, messages=[], events=null, isRegister=false, recorder=null, pieces=[], recordingStart=0, recordingTicker=null, recordedCanceled=false, deferredInstall=null, pendingFiles=[],pendingRoom=null,previewUrl=null,uploading=false;
 const joinParam = new URLSearchParams(location.search).get('join');
 const openParam = new URLSearchParams(location.search).get('open');
+const talkParam = new URLSearchParams(location.search).get('talk');
 const avatar = name => (name||'?').slice(0,1).toUpperCase();
 const time = iso => new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 const day = iso => new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
@@ -13,7 +14,7 @@ function sortRooms() {rooms.sort((a,b)=>new Date(b.last?.createdAt||b.createdAt)
 function authMode(register) {isRegister=register;$('#nameField').hidden=!register;$('#realName').required=register;$('#usernameField').hidden=register;$('#username').required=!register;$('#authDescription').textContent=register?'Escolha como quer ser chamado. Seu ID exclusivo será criado automaticamente.':'Entre com seu ID numérico (ou usuário antigo) e sua senha.';$('#authTitle').textContent=register?'Crie sua conta':'Entre na sua conta';$('#authSubmit').innerHTML=register?'Criar conta <span>→</span>':'Entrar <span>→</span>';$('#authSwitchLabel').firstChild.textContent=register?'Já possui uma conta? ':'Ainda não tem conta? ';$('#authSwitch').textContent=register?'Entrar':'Criar conta';$('#password').autocomplete=register?'new-password':'current-password';}
 $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
 $('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#authSubmit');btn.disabled=true;try {const creating=isRegister;const result=await api(creating?'/api/register':'/api/login',{method:'POST',data:creating?{name:$('#realName').value,password:$('#password').value}:{username:$('#username').value,password:$('#password').value}});$('#password').value='';await start();if(creating&&result.user?.publicId){$('#welcomePublicId').textContent=result.user.publicId;openDialog('welcomeDialog');}}catch(err){toast(err.message);}finally{btn.disabled=false;}});
-async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);$('#meAvatar').textContent=avatar(me.name);renderRooms();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');}if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
+async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);$('#meAvatar').textContent=avatar(me.name);renderRooms();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
 function upsertRoom(r) {let idx=rooms.findIndex(x=>x.id===r.id);if(idx<0)rooms.push(r);else rooms[idx]={...rooms[idx],...r};sortRooms();renderRooms();if(current===r.id)renderHeader();}
 function renderRooms(){const list=$('#roomList');list.replaceChildren();const term=$('#search').value.trim().toLowerCase();const filtered=rooms.filter(x=>x.name.toLowerCase().includes(term)||String(x.peerId||'').includes(term));if(!filtered.length){const el=document.createElement('p');el.className='list-empty';el.textContent=term?'Nenhuma conversa encontrada.':'Nenhuma conversa ainda. Toque em + para criar a primeira.';list.append(el);return;}for(const room of filtered){const btn=document.createElement('button');btn.type='button';btn.className='room-item'+(room.id===current?' active':'');const ic=document.createElement('div');ic.className='room-icon';ic.textContent=avatar(room.name);const info=document.createElement('div');info.className='room-info';const top=document.createElement('div');top.className='room-name';const title=document.createElement('strong');title.textContent=room.name;const small=document.createElement('small');small.textContent=room.last?time(room.last.createdAt):'';top.append(title,small);const preview=document.createElement('div');preview.className='room-preview';preview.textContent=room.last?`${room.last.senderName}: ${room.last.type==='flowtalk'?'📻 FlowTalk':room.last.type==='audio'?'🎤 Mensagem de voz':({image:'📷 Foto',video:'🎬 Vídeo',file:'📎 Arquivo'}[room.last.type]||room.last.text)}`:'Conversa criada · toque para abrir';info.append(top,preview);btn.append(ic,info);btn.addEventListener('click',()=>openRoom(room.id));list.append(btn);}}
 $('#search').addEventListener('input',renderRooms);
@@ -150,6 +151,20 @@ function connectEvents(){
   events.addEventListener('room',event=>{
     const next=JSON.parse(event.data);upsertRoom(next);
     if($('#groupManageDialog').open&&managedGroup===next.id)void refreshGroupMembers();
+  });
+  events.addEventListener('talk-incoming',event=>{
+    const call=JSON.parse(event.data);
+    if(!me||!rooms.some(r=>r.id===call.roomId))return;
+    const contact=call.senderName||'Alguém';
+    if(document.visibilityState==='visible'){
+      soundAlert();vibrateAlert();
+      toast('📻 '+contact+' chamou no FlowTalk. Abra o rádio para ouvir.');
+      const button=$('#flowtalkToggle');
+      if(current===call.roomId&&!liveRadio){
+        button.classList.add('talk-incoming');
+        setTimeout(()=>button.classList.remove('talk-incoming'),12000);
+      }
+    }
   });
   events.addEventListener('room-removed',event=>{
     const {roomId}=JSON.parse(event.data);rooms=rooms.filter(r=>r.id!==roomId);
@@ -290,10 +305,10 @@ function radioUI(session){
   if(liveRadio!==session)return;
   const count=session.peerCount||0;
   const occupied=!!session.speakerId&&session.speakerId!==session.clientId;
-  talkButton.disabled=!session.ready||count<1||occupied||session.ctx?.state==='closed';
+  talkButton.disabled=!session.ready||occupied||session.ctx?.state==='closed';
   $('#flowtalkParticipants').textContent=count+' participante(s) conectado(s) · rádio ao vivo';
   if(occupied)liveStatus('📻 '+(session.speakerName||'Outra pessoa')+' está falando agora');
-  else if(!session.holding)liveStatus(count?'Canal livre · segure para falar AO VIVO':'Aguardando outro aparelho abrir o FlowTalk...');
+  else if(!session.holding)liveStatus(count?'Canal livre · segure para falar AO VIVO':'Canal livre · segure para chamar seus contatos');
 }
 function resetRadioSpeaker(session){
   session.speakerNode?.port.postMessage({type:'reset'});
@@ -317,13 +332,51 @@ function stopLiveRadio(){
   $('#flowtalkToggle').setAttribute('aria-pressed','false');
   liveStatus('Rádio desligado.');
 }
-function startRadioTalk(){
+async function acquireRadioMic(session){
+  if(session.track?.readyState==='live')return;
+  // A primeira tentativa acontece no gesto de tocar em "falar"; autorização futura é decisão do navegador.
+  const stream=await navigator.mediaDevices.getUserMedia({audio:{
+    echoCancellation:true,noiseSuppression:true,autoGainControl:true
+  }});
+  if(liveRadio!==session){stream.getTracks().forEach(t=>t.stop());return;}
+  session.stream=stream;session.track=stream.getAudioTracks()[0];
+  if(!session.track)throw Error('Microfone não encontrado.');
+  session.track.enabled=false;
+  session.track.onended=()=>{if(liveRadio===session){toast('Microfone desconectado.');stopLiveRadio();}};
+  const micSource=session.ctx.createMediaStreamSource(stream);
+  const micNode=new AudioWorkletNode(session.ctx,'vozchat-mic-stream',{
+    numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[1]
+  });
+  const silent=session.ctx.createGain();silent.gain.value=0;
+  micSource.connect(micNode).connect(silent).connect(session.ctx.destination);
+  session.micNode=micNode;session.micSource=micSource;
+  micNode.port.onmessage=e=>{
+    if(liveRadio!==session||!session.granted||!session.holding||session.ws?.readyState!==WebSocket.OPEN)return;
+    const pcm=e.data?.pcm;
+    if(!(pcm instanceof ArrayBuffer)||pcm.byteLength!==640)return;
+    session.framesSent=(session.framesSent||0)+1;
+    if(session.ws.bufferedAmount<16384)session.ws.send(pcm);
+  };
+}
+async function startRadioTalk(){
   const session=liveRadio;
   if(!session?.ready||session.holding||talkButton.disabled)return;
-  if(session.ctx.state==='suspended')void session.ctx.resume().catch(()=>{});
   session.holding=true;session.granted=false;
-  liveStatus('Solicitando canal livre...');
-  radioSend(session,{type:'floor-request'});
+  liveStatus('Preparando microfone...');
+  // Resume antes de esperar o microfone, preservando o gesto do usuário no Safari.
+  if(session.ctx.state==='suspended')void session.ctx.resume().catch(()=>{});
+  try{
+    await acquireRadioMic(session);
+    if(liveRadio!==session||!session.holding)return;
+    liveStatus('Chamando no rádio...');
+    radioSend(session,{type:'floor-request'});
+  }catch(err){
+    if(liveRadio===session){
+      session.holding=false;
+      liveStatus(err.name==='NotAllowedError'?'Microfone bloqueado. Autorize nas configurações.':'Não foi possível ligar o microfone.');
+      toast(err.message||'Microfone indisponível.');
+    }
+  }
 }
 function stopRadioTalk(){
   const session=liveRadio;if(!session)return;
@@ -342,56 +395,41 @@ async function openLiveRadio(){
     toast('Seu navegador não permite rádio ao vivo. Atualize o Safari ou Chrome.');return;
   }
   const Context=window.AudioContext||window.webkitAudioContext;
-  // Criado diretamente no toque: Safari exige gesto para habilitar a saída de áudio.
+  // O receptor pode entrar e ouvir sem liberar o microfone.
   const ctx=new Context({latencyHint:'interactive'});
-  const resume=ctx.resume();
-  const micPromise=navigator.mediaDevices.getUserMedia({audio:{
-    echoCancellation:true,noiseSuppression:true,autoGainControl:true
-  }});
+  // Não aguardar resume(): em alguns iPhones a Promise fica pendente indefinidamente.
+  void ctx.resume().catch(()=>{});
   const session={roomId:current,ctx,ws:null,stream:null,track:null,micNode:null,speakerNode:null,
     micSource:null,clientId:null,ready:false,holding:false,granted:false,
-    speakerId:null,speakerName:null,peerCount:0};
+    speakerId:null,speakerName:null,peerCount:0,framesReceived:0,framesSent:0};
   liveRadio=session;
   $('#flowtalkPanel').hidden=false;
   $('#flowtalkToggle').classList.add('flowtalk-active');
   $('#flowtalkToggle').setAttribute('aria-pressed','true');
   listenButton.hidden=false;talkButton.disabled=true;
-  liveStatus('Ligando microfone e alto-falante...');
+  liveStatus('Preparando alto-falante...');
   try{
-    // Em iPhones compatíveis, mantém a sessão apropriada para voz bidirecional.
-    try{if(navigator.audioSession)navigator.audioSession.type='play-and-record';}catch{}
-    const [stream]=await Promise.all([
-      micPromise,ctx.audioWorklet.addModule('/talk-worklet.js'),resume
-    ]);
-    if(liveRadio!==session){stream.getTracks().forEach(t=>t.stop());void ctx.close();return;}
-    session.stream=stream;
-    session.track=stream.getAudioTracks()[0];
-    if(!session.track)throw Error('Microfone não encontrado.');
-    session.track.enabled=false;
-    session.track.onended=()=>{if(liveRadio===session){toast('Microfone desligado.');stopLiveRadio();}};
-    const micSource=ctx.createMediaStreamSource(stream);
-    const micNode=new AudioWorkletNode(ctx,'vozchat-mic-stream',{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[1]});
-    const silent=ctx.createGain();silent.gain.value=0;
-    micSource.connect(micNode).connect(silent).connect(ctx.destination);
+    try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch{}
+    await ctx.audioWorklet.addModule('/talk-worklet.js');
+    if(liveRadio!==session){void ctx.close();return;}
     const speakerNode=new AudioWorkletNode(ctx,'vozchat-speaker-stream',{
       numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[1]
     });
     const speakerGain=ctx.createGain();speakerGain.gain.value=$('#flowtalkAutoPlay').checked?1:0;
     speakerNode.connect(speakerGain).connect(ctx.destination);
-    session.micNode=micNode;session.micSource=micSource;session.speakerNode=speakerNode;session.speakerGain=speakerGain;
-    micNode.port.onmessage=e=>{
-      if(liveRadio!==session||!session.granted||!session.holding||session.ws?.readyState!==WebSocket.OPEN)return;
-      const pcm=e.data?.pcm;
-      if(!(pcm instanceof ArrayBuffer)||pcm.byteLength!==640)return;
-      if(session.ws.bufferedAmount<16384)session.ws.send(pcm);
-    };
+    session.speakerNode=speakerNode;session.speakerGain=speakerGain;
     const proto=location.protocol==='https:'?'wss:':'ws:';
     const ws=new WebSocket(proto+'//'+location.host+'/api/talk/ws?room='+encodeURIComponent(session.roomId));
     ws.binaryType='arraybuffer';session.ws=ws;
     ws.onmessage=e=>{
       if(liveRadio!==session)return;
       if(e.data instanceof ArrayBuffer){
-        if($('#flowtalkAutoPlay').checked)session.speakerNode?.port.postMessage({type:'pcm',pcm:e.data},[e.data]);
+        session.framesReceived++;
+        if($('#flowtalkAutoPlay').checked){
+          session.speakerNode?.port.postMessage({type:'pcm',pcm:e.data},[e.data]);
+          if(session.ctx.state!=='running')liveStatus('Áudio recebido. Toque em 🔊 Ativar alto-falante.');
+          else if(session.framesReceived===1)liveStatus('🔊 Áudio chegando ao aparelho');
+        }
         return;
       }
       let msg;try{msg=JSON.parse(e.data);}catch{return;}
@@ -459,7 +497,7 @@ $('#flowtalkAutoPlay').addEventListener('change',()=>{
 listenButton.addEventListener('click',async()=>{
   const session=liveRadio;if(!session)return;
   try{
-    await session.ctx.resume();
+    void session.ctx.resume().catch(()=>{});
     // Toque de confirmação do próprio alto-falante (não é mensagem de rádio).
     const oscillator=session.ctx.createOscillator(),gain=session.ctx.createGain();
     gain.gain.setValueAtTime(.0001,session.ctx.currentTime);
@@ -470,7 +508,7 @@ listenButton.addEventListener('click',async()=>{
     oscillator.start();oscillator.stop(session.ctx.currentTime+.19);
     $('#flowtalkAutoPlay').checked=true;
     if(session.speakerGain)session.speakerGain.gain.value=1;
-    toast('Toque de teste enviado ao alto-falante.');
+    toast('Teste do alto-falante executado. Se não ouvir, verifique volume e modo silencioso.');
   }catch{toast('Falha ao ativar alto-falante. Confira o volume do aparelho.');}
 });
 document.addEventListener('visibilitychange',()=>{
