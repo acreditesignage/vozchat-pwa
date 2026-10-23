@@ -1,0 +1,25 @@
+{
+  "name": "FlowTalk — Rádio direto",
+  "short_name": "FlowTalk",
+  "description": "Rádio PTT independente do chat VozChat, com áudio ao vivo pelo LiveKit.",
+  "id": "/talk",
+  "start_url": "/talk",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f4fc",
+  "theme_color": "#211d46",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

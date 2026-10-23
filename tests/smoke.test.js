@@ -16,6 +16,11 @@ test('cadastro, chat, privacidade, convite, texto, áudio, fotos, vídeos, arqui
   let c1='',c2='';
   async function req(method,url,body,cookie,headers={}){const res=await fetch(base+url,{method,headers:{...(body && !(body instanceof Uint8Array)?{'content-type':'application/json'}:{}),...headers,...(cookie?{cookie}:{})},body:body?(body instanceof Uint8Array?body:JSON.stringify(body)):undefined});const data=(res.headers.get('content-type')||'').startsWith('application/json')?await res.json():await res.arrayBuffer();return {status:res.status,data,cookie:res.headers.get('set-cookie')?.split(';')[0]};}
   const home=await req('GET','/app');assert.equal(home.status,200);
+  const talk=await req('GET','/talk');assert.equal(talk.status,200);
+  assert.match(new TextDecoder().decode(talk.data),/FlowTalk/);
+  for(const resource of ['/talk.js','/talk.css','/talk.webmanifest']){
+    const result=await req('GET',resource);assert.equal(result.status,200,resource);
+  }
   const manifest=await req('GET','/manifest.webmanifest');assert.equal(manifest.status,200);
   const register1=await req('POST','/api/register',{name:'Ana',username:'ana',password:'senha-forte-123'});assert.equal(register1.status,201);c1=register1.cookie;
   const register2=await req('POST','/api/register',{name:'Bruno',username:'bruno',password:'senha-forte-456'});assert.equal(register2.status,201);c2=register2.cookie;

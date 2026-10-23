@@ -1,5 +1,5 @@
-const VERSION='vozchat-shell-v12';
-const ASSETS=['/app','/styles.css','/app.js','/talk-worklet.js','/livekit.bundle.js','/icons/icon.svg','/icons/icon-maskable.svg','/icons/icon-192.png','/icons/icon-512.png','/manifest.webmanifest'];
+const VERSION='vozchat-shell-v13';
+const ASSETS=['/app','/talk','/styles.css','/app.js','/talk.js','/talk.css','/talk.webmanifest','/talk-worklet.js','/livekit.bundle.js','/icons/icon.svg','/icons/icon-maskable.svg','/icons/icon-192.png','/icons/icon-512.png','/manifest.webmanifest'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(VERSION).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==VERSION).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
 self.addEventListener('fetch',event=>{if(event.request.method!=='GET'||new URL(event.request.url).pathname.startsWith('/api/'))return;event.respondWith(fetch(event.request).catch(()=>caches.match(event.request)));});
@@ -10,7 +10,7 @@ self.addEventListener('push',event=>{
   const body=String(payload.body||'Você recebeu uma nova mensagem.').slice(0,140);
   const safeId=/^[0-9a-f-]{36}$/i.test(payload.roomId||'')?payload.roomId:'';
   const isTalk=payload.kind==='talk';
-  const url=safeId?'/app?open='+encodeURIComponent(safeId)+(isTalk?'&talk=1':''):'/app';
+  const url=safeId?(isTalk?'/talk?room='+encodeURIComponent(safeId)+'&join=1':'/app?open='+encodeURIComponent(safeId)):'/app';
   event.waitUntil((async()=>{
     await self.registration.showNotification(title,{
       body,

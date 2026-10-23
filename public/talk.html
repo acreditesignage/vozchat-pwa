@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#211d46">
+  <meta name="description" content="FlowTalk: rádio PTT ao vivo, acesso direto sem abrir o chat.">
+  <link rel="manifest" href="/talk.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="/talk.css">
+  <title>FlowTalk — Rádio direto</title>
+</head>
+<body>
+  <main class="shell">
+    <header class="header">
+      <div class="brand"><div class="logo">📻</div><div><b>FlowTalk</b><small>Rádio direto · LiveKit</small></div></div>
+      <a href="/app" class="chat-link">Abrir chat ↗</a>
+    </header>
+    <div id="notice" role="status" aria-live="polite" hidden></div>
+    <section id="loginPanel" class="card" hidden>
+      <h1>Entrar no rádio</h1>
+      <p>Use o mesmo ID e a mesma senha do VozChat.</p>
+      <form id="loginForm">
+        <label>ID do usuário<input id="userId" autocomplete="username" inputmode="text" placeholder="Ex.: 10" required></label>
+        <label>Senha<input id="userPassword" type="password" autocomplete="current-password" required></label>
+        <button type="submit" class="primary">Entrar no FlowTalk</button>
+      </form>
+      <a href="/app">Criar uma conta no VozChat</a>
+    </section>
+    <section id="radioHome" hidden>
+      <div class="intro"><span class="eyebrow">SUA ESTAÇÃO</span><h1>Um toque. Sua voz.</h1>
+        <p>Escolha o grupo ou contato. Depois, mantenha pressionado para falar.</p></div>
+      <div class="card channel-card">
+        <label for="talkRoom">Canal de rádio</label>
+        <select id="talkRoom" aria-label="Escolher contato ou grupo"></select>
+        <p class="hint" id="channelHint">O último canal fica salvo neste aparelho.</p>
+        <div class="actions">
+          <button type="button" id="flowtalkToggle" class="primary" aria-pressed="false">📻 Ligar rádio</button>
+          <button type="button" id="notifyButton" class="secondary">🔔 Alertas</button>
+        </div>
+      </div>
+      <section id="flowtalkPanel" class="card radio-panel" hidden>
+        <div class="flowtalk-indicator">
+          <strong>📻 FlowTalk · rádio ao vivo</strong>
+          <span id="flowtalkStatus" role="status" aria-live="polite">Conectando...</span>
+          <small id="flowtalkParticipants">Rádio disponível</small>
+        </div>
+        <button id="flowtalkHold" class="flowtalk-hold" type="button" aria-label="Pressione e segure para falar" disabled>🎙 Segure para falar</button>
+        <button id="flowtalkStop" class="flowtalk-stop" type="button" hidden>⏹ PARAR TRANSMISSÃO</button>
+        <label class="listening"><input id="flowtalkAutoPlay" type="checkbox" checked> Ouvir voz ao vivo</label>
+        <button id="flowtalkListen" class="secondary" type="button">🔊 Ativar alto-falante</button>
+        <div id="flowtalkAudioOutputs" hidden aria-hidden="true"></div>
+        <p class="hint">Mantenha esta página aberta para ouvir. O iPhone não garante áudio em segundo plano no PWA.</p>
+      </section>
+      <div class="tip">📲 <b>Ícone exclusivo:</b> abra <strong>esta página</strong> no Safari, toque em Compartilhar → Adicionar à Tela de Início e escolha “Abrir como App”.</div>
+    </section>
+    <footer>FlowTalk • comunicação ao vivo, sem gravar no histórico.</footer>
+  </main>
+  <script type="module" src="/talk.js"></script>
+</body>
+</html>

@@ -33,5 +33,20 @@
       "purpose": "maskable"
     }
   ],
-  "id": "/app"
+  "id": "/app",
+  "shortcuts": [
+    {
+      "name": "FlowTalk — rádio direto",
+      "short_name": "Rádio",
+      "description": "Abrir o rádio de voz direto na conversa",
+      "url": "/talk",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
 }
