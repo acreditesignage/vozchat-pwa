@@ -61,3 +61,11 @@ Depois de extrair o ZIP, dê duplo clique em `iniciar-windows.bat` (com Node.js 
 3. O arquivo `render.yaml` define o serviço gratuito e `/api/health` para teste.
 4. **Aviso:** no serviço Free, o banco JSON e os áudios no disco local **não são persistentes**. Contas, áudios e mensagens podem ser perdidos após reinício/redeploy. Use somente para demonstração até implementar banco e storage duráveis.
 5. Não usar para mensagens médicas ou prontuários sem revisão de privacidade e segurança.
+
+## Correção de login e persistência
+As contas, sessões, mensagens e anexos passam a ser guardados em PostgreSQL quando DATABASE_URL está configurada.
+Em produção NODE_ENV=production, o aplicativo recusa iniciar sem DATABASE_URL; isso evita criar novos cadastros que seriam apagados no reinício.
+O banco gratuito Render vence em 22/11/2026. Antes disso, migrar para armazenamento durável e configurar backup.
+Nenhum segredo deve ser enviado ao GitHub. Configure a URL interna no Render > VozChat > Environment > DATABASE_URL.
+Para validar, visite /api/health e procure storage=postgres; crie conta, saia, faça login e confirme após reiniciar o serviço.
+As contas já perdidas em deploys anteriores não são recuperadas automaticamente.
