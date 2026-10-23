@@ -20,6 +20,7 @@
     "ws": "^8.18.3",
     "livekit-client": "^2.23.0",
     "livekit-server-sdk": "^2.19.1",
-    "esbuild": "^0.25.12"
+    "esbuild": "^0.25.12",
+    "@livekit/protocol": "^1.53.0"
   }
 }

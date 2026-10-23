@@ -5,6 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
+import { TrackSource } from '@livekit/protocol';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -294,7 +295,7 @@ async function api(req,res,url) {
       identity:u.id+'-'+rand(8),ttl:'10m'
     });
     token.addGrant({roomJoin:true,room:'vozchat-'+rid,canPublish:true,
-      canSubscribe:true,canPublishData:false,canPublishSources:['microphone']});
+      canSubscribe:true,canPublishData:false,canPublishSources:[TrackSource.MICROPHONE]});
     return json(res,200,{url:LIVEKIT_URL,token:await token.toJwt()});
   }
   if(method==='GET'&&p==='/api/talk/ice-config') {
