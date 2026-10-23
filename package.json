@@ -2,13 +2,14 @@
   "name": "vozchat-pwa",
   "version": "1.0.0",
   "private": true,
-  "description": "VozChat PWA com FlowTalk WebRTC ao vivo, chat, áudio e notificações",
+  "description": "VozChat PWA com FlowTalk LiveKit gerenciado (integracao opcional)",
   "type": "module",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test tests/*.test.js",
-    "postinstall": "npm test"
+    "postinstall": "npm run build:livekit && npm test",
+    "build:livekit": "esbuild public/livekit-radio.js --bundle --minify --format=esm --platform=browser --target=es2020 --outfile=public/livekit.bundle.js"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -16,6 +17,9 @@
   "dependencies": {
     "pg": "^8.16.3",
     "web-push": "^3.6.7",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "livekit-client": "^2.23.0",
+    "livekit-server-sdk": "^2.19.1",
+    "esbuild": "^0.25.12"
   }
 }

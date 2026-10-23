@@ -4,6 +4,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
+import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,28 @@ fs.mkdirSync(AUDIO, { recursive: true });
 fs.mkdirSync(FILES, { recursive: true });
 const DATA_FILE = path.join(DATA, 'database.json');
 const POSTGRES_URL = process.env.DATABASE_URL || process.env.VOZCHAT_DATABASE_URL;
+const LIVEKIT_URL = (process.env.LIVEKIT_URL || '').trim();
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || '';
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || '';
+const livekitConfigured = /^wss:\/\/[^\s/]+$/i.test(LIVEKIT_URL) && !!LIVEKIT_API_KEY && !!LIVEKIT_API_SECRET;
+const livekitRoomService = livekitConfigured
+  ? new RoomServiceClient(LIVEKIT_URL.replace(/^wss:/,'https:'),LIVEKIT_API_KEY,LIVEKIT_API_SECRET)
+  : null;
+async function revokeLivekitMember(roomId,userId){
+  if(!livekitRoomService)return;
+  try{
+    const roomName='vozchat-'+roomId;
+    const attendees=await livekitRoomService.listParticipants(roomName);
+    await Promise.allSettled(attendees.filter(p=>p.identity.startsWith(userId+'-'))
+      .map(p=>livekitRoomService.removeParticipant(roomName,p.identity)));
+  }catch(e){console.warn('LiveKit: falha ao desconectar participante',e?.message);}
+}
+async function closeLivekitRoom(roomId){
+  if(!livekitRoomService)return;
+  try{await livekitRoomService.deleteRoom('vozchat-'+roomId);}
+  catch(e){console.warn('LiveKit: falha ao encerrar sala',e?.message);}
+}
+
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
 const pushEnabled = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
@@ -259,6 +282,21 @@ async function api(req,res,url) {
   }
   if(method==='POST'&&p==='/api/rooms') { const input=JSON.parse((await body(req)).toString('utf8')); const name=String(input.name||'').trim(); if(name.length<2||name.length>60) return error(res,400,'Nome da conversa deve ter de 2 a 60 caracteres.'); const r={id:id(),secret:rand(24),owner:u.id,name,members:[u.id],createdAt:new Date().toISOString()}; db.rooms.push(r); await save(); const view=roomView(r,u.id); push([u.id],'room',view); return json(res,201,{room:view}); }
   if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&!r.directKey&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){r.members.push(u.id);await save();for(const uid of r.members)push([uid],'room',roomView(r,uid));} return json(res,200,{room:roomView(r,u.id)}); }
+  if(method==='GET'&&p==='/api/talk/provider') {
+    return json(res,200,{provider:livekitConfigured?'livekit':'legacy'});
+  }
+  if(method==='POST'&&p==='/api/talk/livekit-token') {
+    if(!livekitConfigured)return error(res,503,'LiveKit ainda não configurado neste ambiente.');
+    const input=JSON.parse((await body(req,1024)).toString('utf8'));
+    const rid=String(input.roomId||'');
+    if(!/^[0-9a-f-]{36}$/i.test(rid)||!member(u.id,rid))return error(res,403,'Sem acesso a esta conversa.');
+    const token=new AccessToken(LIVEKIT_API_KEY,LIVEKIT_API_SECRET,{
+      identity:u.id+'-'+rand(8),ttl:'10m'
+    });
+    token.addGrant({roomJoin:true,room:'vozchat-'+rid,canPublish:true,
+      canSubscribe:true,canPublishData:false,canPublishSources:['microphone']});
+    return json(res,200,{url:LIVEKIT_URL,token:await token.toJwt()});
+  }
   if(method==='GET'&&p==='/api/talk/ice-config') {
     return json(res,200,{iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]});
   }
@@ -289,6 +327,7 @@ async function api(req,res,url) {
       if(target.id===r.owner)return error(res,400,'O criador não pode se remover. Exclua o grupo se necessário.');
       r.members=r.members.filter(uid=>uid!==target.id);
       talkCloseForMember(r.id,target.id);
+      void revokeLivekitMember(r.id,target.id);
       r.secret=rand(24); // revoga convites antigos que o participante removido possa ter guardado
       await save();publishGroupChange(r,[target.id]);
       return json(res,200,{room:roomView(r,u.id),members:groupMembers(r)});
@@ -297,6 +336,7 @@ async function api(req,res,url) {
       if(r.owner===u.id)return error(res,409,'O criador não pode sair. Exclua o grupo se necessário.');
       r.members=r.members.filter(uid=>uid!==u.id);
       talkCloseForMember(r.id,u.id);
+      void revokeLivekitMember(r.id,u.id);
       r.secret=rand(24);
       await save();publishGroupChange(r,[u.id]);
       return json(res,200,{ok:true});
@@ -305,6 +345,7 @@ async function api(req,res,url) {
       if(r.owner!==u.id)return error(res,403,'Somente o criador pode excluir o grupo.');
       const recipients=[...r.members],audios=db.audios.filter(a=>a.roomId===rid),files=db.files.filter(f=>f.roomId===rid);
       talkCloseRoom(rid);
+      void closeLivekitRoom(rid);
       db.rooms=db.rooms.filter(g=>g.id!==rid);
       db.messages=db.messages.filter(m=>m.roomId!==rid);
       db.audios=db.audios.filter(a=>a.roomId!==rid);
@@ -378,7 +419,7 @@ async function api(req,res,url) {
 const server=http.createServer(async(req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Frame-Options','DENY');
   res.setHeader('Permissions-Policy','camera=(), microphone=(self), geolocation=()');
-  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self' https://*.livekit.cloud wss://*.livekit.cloud; manifest-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
   try{const url=new URL(req.url,`http://${req.headers.host||'localhost'}`);if(url.pathname.startsWith('/api/'))await api(req,res,url); else if(req.method==='GET'||req.method==='HEAD')await staticFile(req,res,url); else error(res,405,'Método não permitido.');}
   catch(err){ if(!res.headersSent) { const status=err.status|| (err instanceof SyntaxError?400:500); console.error(status===500?err.message:'');error(res,status,status===500?'Erro interno no servidor.':err.message); } }
 });

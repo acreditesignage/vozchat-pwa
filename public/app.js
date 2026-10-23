@@ -296,6 +296,8 @@ $('#groupDeleteButton').addEventListener('click',async()=>{
 // FlowTalk ao vivo: captura e toca pacotes PCM de 20 ms em Web Audio.
 // O servidor só encaminha a voz durante o pressionamento; não grava nem cria mensagens.
 let liveRadio=null;
+let livekitController=null;
+let livekitOpening=false;
 const talkButton=$('#flowtalkHold'),listenButton=$('#flowtalkListen');
 function liveStatus(text){$('#flowtalkStatus').textContent=text;}
 function radioSend(session,payload){
@@ -314,6 +316,7 @@ function resetRadioSpeaker(session){
   session.speakerNode?.port.postMessage({type:'reset'});
 }
 function stopLiveRadio(){
+  if(livekitController){livekitController.close();livekitController=null;}
   const session=liveRadio;
   if(!session)return;
   liveRadio=null;session.holding=false;session.granted=false;
@@ -359,6 +362,7 @@ async function acquireRadioMic(session){
   };
 }
 async function startRadioTalk(){
+  if(livekitController){livekitController.press();return;}
   const session=liveRadio;
   if(!session?.ready||session.holding||talkButton.disabled)return;
   session.holding=true;session.granted=false;
@@ -379,6 +383,7 @@ async function startRadioTalk(){
   }
 }
 function stopRadioTalk(){
+  if(livekitController){livekitController.release();return;}
   const session=liveRadio;if(!session)return;
   session.holding=false;session.granted=false;
   if(session.track)session.track.enabled=false;
@@ -389,7 +394,25 @@ function stopRadioTalk(){
   radioUI(session);
 }
 async function openLiveRadio(){
-  if(liveRadio){stopLiveRadio();return;}
+  if(liveRadio||livekitController){stopLiveRadio();return;}
+  if(livekitOpening)return;
+  livekitOpening=true;
+  let provider;
+  try{provider=await api('/api/talk/provider');}
+  catch(err){livekitOpening=false;toast(err.message);return;}
+  if(provider.provider==='livekit'){
+    $('#flowtalkPanel').hidden=false;
+    $('#flowtalkStatus').textContent='Abrindo LiveKit...';
+    try{
+      const {startLiveKitRadio}=await import('/livekit.bundle.js');
+      livekitController=await startLiveKitRadio({roomId:current,api,notify:toast});
+    }catch(err){
+      toast('Falha no LiveKit: '+(err?.message||'verifique configuração'));
+      $('#flowtalkPanel').hidden=true;
+    }finally{livekitOpening=false;}
+    return;
+  }
+  livekitOpening=false;
   if(!current||!navigator.mediaDevices?.getUserMedia||!window.WebSocket||
     !window.AudioContext&&!window.webkitAudioContext||!window.AudioWorkletNode){
     toast('Seu navegador não permite rádio ao vivo. Atualize o Safari ou Chrome.');return;
@@ -490,11 +513,13 @@ talkButton.addEventListener('keyup',e=>{
   if(e.code==='Space'||e.code==='Enter'){e.preventDefault();stopRadioTalk();}
 });
 $('#flowtalkAutoPlay').addEventListener('change',()=>{
+  if(livekitController){livekitController.listening($('#flowtalkAutoPlay').checked);return;}
   const session=liveRadio;
   if(session?.speakerGain)session.speakerGain.gain.value=$('#flowtalkAutoPlay').checked?1:0;
   if(!$('#flowtalkAutoPlay').checked&&session)resetRadioSpeaker(session);
 });
 listenButton.addEventListener('click',async()=>{
+  if(livekitController){void livekitController.enableAudio();return;}
   const session=liveRadio;if(!session)return;
   try{
     void session.ctx.resume().catch(()=>{});
@@ -512,7 +537,7 @@ listenButton.addEventListener('click',async()=>{
   }catch{toast('Falha ao ativar alto-falante. Confira o volume do aparelho.');}
 });
 document.addEventListener('visibilitychange',()=>{
-  if(document.hidden&&liveRadio?.holding)stopRadioTalk();
+  if(document.hidden&&(liveRadio?.holding||livekitController))stopRadioTalk();
   else if(!document.hidden&&liveRadio?.ctx?.state==='suspended')void liveRadio.ctx.resume().catch(()=>{});
 });
 window.addEventListener('pagehide',()=>stopLiveRadio());

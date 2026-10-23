@@ -9,7 +9,7 @@ import net from 'node:net';
 async function unusedPort(){return new Promise(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const port=s.address().port;s.close(()=>resolve(port));});});}
 test('cadastro, chat, privacidade, convite, texto, áudio, fotos, vídeos, arquivos e PWA',async t=>{
   const PORT=await unusedPort(), dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'vozchat-'));
-  const server=spawn(process.execPath,['server.js'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,DATABASE_URL:'',VOZCHAT_DATABASE_URL:'',VAPID_PUBLIC_KEY:'',VAPID_PRIVATE_KEY:'',NODE_ENV:'test',DATA_DIR:dataDir,PORT:String(PORT)},stdio:'pipe'});
+  const server=spawn(process.execPath,['server.js'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,DATABASE_URL:'',VOZCHAT_DATABASE_URL:'',VAPID_PUBLIC_KEY:'',VAPID_PRIVATE_KEY:'',LIVEKIT_URL:'',LIVEKIT_API_KEY:'',LIVEKIT_API_SECRET:'',NODE_ENV:'test',DATA_DIR:dataDir,PORT:String(PORT)},stdio:'pipe'});
   t.after(()=>{server.kill('SIGTERM');fs.rmSync(dataDir,{recursive:true,force:true});});
   const base=`http://127.0.0.1:${PORT}`;
   for(let i=0;i<100;i++){try{const r=await fetch(base+'/api/health');if(r.ok)break;}catch{}await new Promise(r=>setTimeout(r,50));}
@@ -23,6 +23,14 @@ test('cadastro, chat, privacidade, convite, texto, áudio, fotos, vídeos, arqui
   // Novo onboarding: IDs numéricos sequenciais a partir de 10, com senha.
   assert.equal(register1.data.user.publicId,'10');
   assert.equal(register2.data.user.publicId,'11');
+  // LiveKit só liga com credenciais, e tokens de voz exigem autenticação e grupo válido.
+  const providerAnon=await req('GET','/api/talk/provider');
+  assert.equal(providerAnon.status,401);
+  const provider=await req('GET','/api/talk/provider',undefined,c1);
+  assert.equal(provider.status,200);
+  assert.equal(provider.data.provider,'legacy');
+  const tokenUnconfigured=await req('POST','/api/talk/livekit-token',{roomId:'00000000-0000-4000-8000-000000000000'},c1);
+  assert.equal(tokenUnconfigured.status,503);
   const addById=await req('POST','/api/contacts/add',{publicId:'11'},c1);
   assert.equal(addById.status,201);
   assert.equal(addById.data.room.isDirect,true);
