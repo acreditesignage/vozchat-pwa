@@ -39,7 +39,7 @@ export async function startLiveKitRadio({roomId,api,notify}) {
     try{room?.disconnect();}catch{}
     for(const audio of receiveAudio.values()){audio.pause();audio.remove();}
     receiveAudio.clear();speakers.replaceChildren();button.disabled=true;
-    button.textContent='🎙 Segure para falar';button.classList.remove('talking');
+    button.textContent='Segure para falar';button.classList.remove('talking');
     toggle.classList.remove('flowtalk-active');toggle.setAttribute('aria-pressed','false');panel.hidden=true;
   }
   function enableAudio(){
@@ -90,7 +90,7 @@ export async function startLiveKitRadio({roomId,api,notify}) {
       // Publicar e desmutar são assíncronos: se o usuário soltou no meio,
       // não reativar o microfone depois do pointerup.
       if(!active()){if(!holding||!granted)silenceMicrophone();return;}
-      button.classList.add('talking');button.textContent='🔴 NO AR · solte para parar';
+      button.classList.add('talking');button.textContent='Falando…';
       stopButton.hidden=false;
       status('🔴 TRANSMITINDO VOZ AO VIVO');
     }catch(err){
@@ -120,7 +120,7 @@ export async function startLiveKitRadio({roomId,api,notify}) {
     silenceMicrophone();
     send({type:'floor-release'});
     button.classList.remove('talking');
-    button.textContent='🎙 Segure para falar';
+    button.textContent='Segure para falar';
     stopButton.hidden=true;
     ui();
   }

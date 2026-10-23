@@ -26,6 +26,16 @@ test('FlowTalk independente tem entrada própria, controles LiveKit e ícone ins
     assert.match(radio,new RegExp('id="'+id+'"'),id+' na tela dedicada');
   }
   assert.match(css,/\.flowtalk-hold\.talking/);
+  assert.doesNotMatch(radio,/📻/,'tela FlowTalk sem rádio FM');
+  assert.match(radio,/class="logo" aria-hidden="true"/);
+  assert.match(radio,/href="\/icons\/flowtalk.svg"/);
+  assert.match(radio,/disabled>Segure para falar<\/button>/);
+  assert.match(css,/\.flowtalk-hold\{[^}]*aspect-ratio:1/);
+  assert.match(css,/\.flowtalk-hold::before\{/);
+  assert.match(app,/class="quick-talk-orb"/);
+  assert.match(mainManifest.shortcuts[0].icons[0].src,/flowtalk.svg/);
+  assert.match(worker,/\/icons\/flowtalk.svg/);
+
   new Function(js);
   assert.match(js,/await import\('\/livekit\.bundle\.js'\)/);
   assert.match(js,/startLiveKitRadio\(\{roomId:selectedRoom\(\),api,notify:toast\}\)/);

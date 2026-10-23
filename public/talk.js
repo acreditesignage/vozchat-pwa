@@ -74,12 +74,12 @@ async function connectRadio(){
     const {startLiveKitRadio}=await import('/livekit.bundle.js');
     radio=await startLiveKitRadio({roomId:selectedRoom(),api,notify:toast});
     localStorage.setItem(STORAGE_KEY,selectedRoom());
-    toggle.textContent='Desligar rádio';
+    toggle.textContent='Desconectar';
     // O iOS pode exigir toque explícito no alto-falante antes de reproduzir áudio.
   }catch(err){
     radio=null;panel.hidden=true;
     toast('Não foi possível abrir o rádio: '+err.message);
-    toggle.textContent='📻 Ligar rádio';select.disabled=false;
+    toggle.textContent='Conectar';select.disabled=false;
   }finally{opening=false;toggle.disabled=false;}
 }
 function releaseTalk(){
@@ -92,7 +92,7 @@ function disconnectRadio(){
   releaseTalk();
   radio?.close();radio=null;opening=false;
   panel.hidden=true;emergency.hidden=true;
-  toggle.textContent='📻 Ligar rádio';toggle.disabled=false;
+  toggle.textContent='Conectar';toggle.disabled=false;
   select.disabled=false;
 }
 toggle.addEventListener('click',()=>radio?disconnectRadio():void connectRadio());

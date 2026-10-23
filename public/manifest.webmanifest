@@ -37,14 +37,14 @@
   "shortcuts": [
     {
       "name": "FlowTalk — rádio direto",
-      "short_name": "Rádio",
+      "short_name": "FlowTalk",
       "description": "Abrir o rádio de voz direto na conversa",
       "url": "/talk",
       "icons": [
         {
-          "src": "/icons/icon-192.png",
-          "sizes": "192x192",
-          "type": "image/png"
+          "src": "/icons/flowtalk.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
         }
       ]
     }

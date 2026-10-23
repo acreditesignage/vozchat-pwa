@@ -23,3 +23,14 @@ button:disabled{opacity:.5;cursor:not-allowed}button{cursor:pointer}[hidden]{dis
 #loginPanel .primary{width:100%}#loginPanel>a{display:block;text-align:center;margin-top:18px;color:#6551cd;font-size:12px}
 #notice{background:#232239;color:white;position:fixed;z-index:30;left:15px;right:15px;bottom:calc(16px + env(safe-area-inset-bottom));padding:12px 17px;border-radius:12px;text-align:center;box-shadow:0 9px 30px #1115;font-size:13px;max-width:530px;margin:auto}
 @media(min-width:700px){.shell{padding-top:35px}}
+/* Visual PTT minimalista: um botão circular grande, não um rádio FM. */
+.logo{border-radius:50%;background:linear-gradient(135deg,#8977ff,#5744cf);color:#fff;flex:none}
+.logo-mic{display:block;width:25px;height:25px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='12' y='3' width='8' height='17' rx='4' stroke='white' fill='none' stroke-width='2.6'/%3E%3Cpath d='M8 15a8 8 0 0 0 16 0M16 23v6m-5 0h10' stroke='white' fill='none' stroke-linecap='round' stroke-width='2.6'/%3E%3C/svg%3E") center/contain no-repeat}
+.intro{margin:12px auto 17px}.intro h1{font-size:clamp(26px,7vw,35px);letter-spacing:-1.2px}.intro p{font-size:13px}
+.channel-card{padding:15px}.channel-card>label{margin-bottom:7px}.channel-card select{min-height:48px}.actions{margin-top:12px}
+.radio-panel{gap:14px;padding:18px 13px}
+.flowtalk-hold{width:min(55vw,205px);height:auto;min-width:0;min-height:0;aspect-ratio:1;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;text-align:center;padding:20px;line-height:1.2;font-size:16px;transition:background-color .1s}
+.flowtalk-hold::before{content:"";display:block;width:44px;height:44px;flex:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='12' y='3' width='8' height='17' rx='4' stroke='white' fill='none' stroke-width='2.6'/%3E%3Cpath d='M8 15a8 8 0 0 0 16 0M16 23v6m-5 0h10' stroke='white' fill='none' stroke-linecap='round' stroke-width='2.6'/%3E%3C/svg%3E") center/contain no-repeat}
+.flowtalk-hold.talking{background:#dc294b;box-shadow:0 0 0 8px #f7d4dc,0 7px 18px #dc354e52}
+.flowtalk-indicator strong{font-size:14px}.flowtalk-indicator span{font-size:12px}.tip{padding:7px 16px 13px}
+@media(max-width:390px){.flowtalk-hold{width:175px}.header{padding-bottom:15px}.intro{margin:9px auto 13px}}

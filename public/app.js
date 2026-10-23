@@ -330,7 +330,7 @@ function stopLiveRadio(){
   try{session.micNode?.disconnect();session.speakerNode?.disconnect();session.micSource?.disconnect();}catch{}
   try{void session.ctx?.close();}catch{}
   talkButton.classList.remove('talking');
-  talkButton.textContent='🎙 Segure para falar';
+  talkButton.textContent='Segure para falar';
   talkButton.disabled=true;
   $('#flowtalkPanel').hidden=true;
   $('#flowtalkToggle').classList.remove('flowtalk-active');
@@ -391,7 +391,7 @@ function stopRadioTalk(){
   if(session.track)session.track.enabled=false;
   session.micNode?.port.postMessage({type:'enabled',value:false});
   talkButton.classList.remove('talking');
-  talkButton.textContent='🎙 Segure para falar';
+  talkButton.textContent='Segure para falar';
   talkStop.hidden=true;
   radioSend(session,{type:'floor-release'});
   radioUI(session);
@@ -481,7 +481,7 @@ async function openLiveRadio(){
         session.track.enabled=true;
         session.micNode.port.postMessage({type:'enabled',value:true});
         talkButton.classList.add('talking');
-        talkButton.textContent='🔴 NO AR · solte para parar';
+        talkButton.textContent='Falando…';
         talkStop.hidden=false;
         liveStatus('🔴 SUA VOZ ESTÁ SAINDO AGORA');
         if(typeof navigator.vibrate==='function')try{navigator.vibrate(45);}catch{}
