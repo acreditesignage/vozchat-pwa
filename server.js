@@ -7,7 +7,7 @@ import { WebSocketServer } from 'ws';
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { TrackSource } from '@livekit/protocol';
 import { fileURLToPath } from 'node:url';
-import {newNeonGame,beginNeonGame,neonMove,viewNeonGame} from './public/neon-maze-engine.js';
+import {newNeonGame,beginNeonGame,neonMove,neonTick,viewNeonGame} from './public/neon-maze-engine.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const STATIC = path.join(ROOT, 'public');
@@ -220,10 +220,13 @@ async function notifyMembers(room, sender, msg) {
   if(!recipients.size)return;
   const payload=JSON.stringify({
     title: room.directKey ? sender.name : room.name,
+    kind:['game','maze'].includes(msg.type)?'game-invite':'message',
+    gameType:msg.type==='maze'?'neon':msg.type==='game'?'tic':null,
+    gameId:msg.mazeId||msg.gameId||null,
     body: msg.type==='flowtalk'?'📻 Chamado no FlowTalk':msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':msg.type==='game'?'🎮 Convite para Jogo da Velha':msg.type==='maze'?'🎮 Convite para Labirinto Neon':'Nova mensagem',
     roomId:room.id,
     url:'/app?open='+encodeURIComponent(room.id),
-    tag:'vozchat-'+room.id,
+    tag:['game','maze'].includes(msg.type)?'vozchat-game-'+(msg.mazeId||msg.gameId):'vozchat-'+room.id,
     messageId:msg.id
   });
   const subscriptions=(db.pushSubscriptions||[]).map(record=>({record,recipientId:recipientForSubscription(record,[...recipients])})).filter(item=>item.recipientId);
@@ -374,10 +377,30 @@ function neonView(game){return viewNeonGame(game,uid=>db.users.find(u=>u.id===ui
 function neonEmit(game){push(game.users,'neon-update',neonView(game));}
 function expireNeon(game){
   if(!game||!['pending','active'].includes(game.status))return false;
-  if(Date.now()-new Date(game.updatedAt).getTime()<24*3600000)return false;
+  // Movimento automático não prolonga o prazo de uma partida abandonada.
+  const reference=game.lastPlayerAt||game.createdAt||game.updatedAt;
+  if(Date.now()-new Date(reference).getTime()<24*3600000)return false;
   game.status='expired';game.updatedAt=new Date().toISOString();game.finishedAt=game.updatedAt;
   return true;
 }
+
+// Os drones continuam circulando enquanto houver participante online,
+ // mesmo sem nenhuma jogada. A lógica fica no servidor para sincronizar ambos.
+const neonClock=setInterval(()=>{
+  void withPlayLock(async()=>{
+    let changed=false;
+    for(const game of db.neonGames||[]){
+      if(game.status!=='active')continue;
+      const room=db.rooms.find(r=>r.id===game.roomId);
+      if(!room||room.inactive){game.status='abandoned';game.finishedAt=new Date().toISOString();changed=true;neonEmit(game);continue;}
+      if(expireNeon(game)){changed=true;neonEmit(game);continue;}
+      if(!game.users.some(uid=>(clients.get(uid)?.size||0)>0))continue;
+      neonTick(game);neonEmit(game);changed=true;
+    }
+    if(changed)await save();
+  }).catch(err=>console.warn('Relógio do Labirinto Neon:',err?.message));
+},900);
+neonClock.unref?.();
 
 function groupMembers(r) {
   return r.members.map(uid=>db.users.find(u=>u.id===uid)).filter(Boolean)
@@ -534,6 +557,18 @@ async function api(req,res,url) {
     });
     return json(res,200,{games:history});
   }
+  if(method==='GET'&&p==='/api/play/invites'){
+    const invitations=[...(db.games||[]).map(g=>({...g,kind:'tic'})),
+      ...(db.neonGames||[]).map(g=>({...g,kind:'neon'}))]
+      .filter(g=>g.status==='pending'&&g.inviterId!==u.id&&g.users?.includes(u.id)
+        &&Date.now()-new Date(g.createdAt).getTime()<24*3600000
+        &&canPlayInRoom(member(u.id,g.roomId)))
+      .sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt))
+      .slice(0,10).map(g=>({id:g.id,roomId:g.roomId,kind:g.kind,
+        inviterName:db.users.find(person=>person.id===g.inviterId)?.name||'Contato',
+        createdAt:g.createdAt}));
+    return json(res,200,{invitations});
+  }
   if(method==='GET'&&/^\/api\/play\/neon\/room\/[0-9a-f-]{36}$/i.test(p)){
     const roomId=p.split('/').pop(),room=member(u.id,roomId);
     if(!room)return error(res,403,'Acesso negado a esta conversa.');
@@ -556,6 +591,7 @@ async function api(req,res,url) {
       const opponent=room.members.find(uid=>uid!==u.id);
       const game=newNeonGame(id(),roomId,[u.id,opponent],u.id,crypto.randomInt(1,0x7fffffff));
       db.neonGames.push(game);await save();neonEmit(game);
+      push([opponent],'play-invite',{id:game.id,roomId,kind:'neon',inviterName:u.name,createdAt:game.createdAt});
       await sendMsg(room,u,'maze',{mazeId:game.id,text:'🎮 Convite para Labirinto Neon'});
       return json(res,201,{game:neonView(game)});
     });
@@ -573,7 +609,7 @@ async function api(req,res,url) {
       if(action==='accept'||action==='decline'){
         if(game.status!=='pending')return error(res,409,'Convite não está pendente.');
         if(game.inviterId===u.id)return error(res,403,'Somente o convidado pode aceitar ou recusar.');
-        if(action==='accept')beginNeonGame(game);
+        if(action==='accept'){beginNeonGame(game);game.lastPlayerAt=new Date().toISOString();}
         else game.status='declined';
       }else if(action==='cancel'){
         if(game.status!=='pending')return error(res,409,'Convite não está pendente.');
@@ -584,6 +620,7 @@ async function api(req,res,url) {
         game.status='abandoned';
       }else{
         const moved=neonMove(game,u.id,input.direction);
+        if(moved.changed)game.lastPlayerAt=new Date().toISOString();
         if(moved.error)return error(res,moved.code||409,moved.error);
         if(!moved.changed)return json(res,200,{game:neonView(game)});
       }
@@ -620,6 +657,7 @@ async function api(req,res,url) {
         createdAt:now,updatedAt:now};
       db.games.push(game);await save();
       emitPlayGame(game);
+      push([opponent],'play-invite',{id:game.id,roomId:rid,kind:'tic',inviterName:u.name,createdAt:game.createdAt});
       await sendMsg(room,u,'game',{gameId:game.id,text:'🎮 Convite para Jogo da Velha'});
       return json(res,201,{game:playView(game)});
     });
