@@ -636,3 +636,52 @@ html.vozchat-game-active,html.vozchat-game-active body{
   }
   .neon-panel.game-fullscreen .neon-pad button{height:48px!important}
 }
+
+
+/* O jogo solo usa o diálogo nativo (top layer) ocupando a tela útil. */
+#playSoloDialog.play-solo-dialog{
+  position:fixed!important;inset:0!important;top:0!important;left:0!important;
+  margin:0!important;max-width:none!important;max-height:none!important;
+  width:100%!important;height:100dvh!important;min-height:0!important;
+  border:0!important;border-radius:0!important;box-sizing:border-box!important;
+  padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right))
+    max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))!important;
+  background:var(--ui-card)!important;color:var(--ui-text)!important;
+  overflow-x:hidden!important;overflow-y:auto!important;
+  overscroll-behavior:contain!important;
+}
+#playSoloDialog.play-solo-dialog[hidden],
+#playSoloDialog [hidden]{display:none!important}
+#playSoloDialog .dialog-head,#playSoloDialog .play-solo-head,
+#playSoloDialog .play-solo-status,#playSoloDialog .play-solo-actions,
+#playSoloDialog .play-solo-note{
+  width:min(100%,520px);margin-left:auto!important;margin-right:auto!important;
+}
+#playSoloDialog .play-solo-head h2{font-size:18px}
+#playSoloDialog #playSoloCanvas{
+  display:block;width:min(100%,510px,calc((100dvh - 330px) * 17 / 13))!important;
+  min-width:0;max-width:100%!important;margin:7px auto!important;
+  aspect-ratio:17/13;height:auto!important;touch-action:none!important;
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
+}
+#playSoloDialog .play-solo-dpad{gap:7px!important;margin:8px auto!important}
+#playSoloDialog .play-solo-dpad>div{gap:12px!important}
+#playSoloDialog .play-solo-dpad button{
+  width:clamp(53px,14vw,64px)!important;height:clamp(51px,6.4dvh,60px)!important;
+  border-radius:15px!important;font-size:22px!important;
+  touch-action:none!important;-webkit-user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  transition:background-color .1s ease,transform .1s ease;
+}
+#playSoloDialog .play-solo-dpad button.is-pressed,
+#playSoloDialog .play-solo-dpad button:active{
+  background:var(--ui-accent);color:white;transform:scale(.93);
+}
+#playSoloDialog .play-solo-actions button{min-height:45px;font-size:13px}
+#playSoloDialog .play-solo-tic-board{width:min(300px,76vw)!important;max-width:100%;margin:15px auto}
+#playSoloDialog .play-solo-tic-square{font-size:46px}
+@media(max-height:680px){
+  #playSoloDialog #playSoloCanvas{width:min(100%,calc((100dvh - 300px) * 17 / 13))!important}
+  #playSoloDialog .play-solo-dpad button{height:48px!important}
+  #playSoloDialog .play-solo-note{display:none}
+}
