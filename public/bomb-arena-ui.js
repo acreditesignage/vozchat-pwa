@@ -2,6 +2,10 @@
 function createBombArena({api,toast,getMe,getRoom}){
  const $=id=>document.getElementById(id),panel=$('bombPanel'),canvas=$('bombCanvas');
  const ctx=canvas.getContext('2d'),status=$('bombStatus'),actions=$('bombActions');
+ // Desenho Retina: as medidas lógicas ficam em 520x440 para todos os celulares.
+ const ratio=Math.min(3,Math.max(1,window.devicePixelRatio||1));
+ canvas.width=Math.round(520*ratio);canvas.height=Math.round(440*ratio);
+ ctx.setTransform(ratio,0,0,ratio,0,0);
  const score=$('bombScore'),pad=$('bombDpad'),bombButton=$('bombPlace');
  const W=13,H=11,C=36,OX=26,OY=22;
  let game=null,roomId=null,busy=false,moving=false,hold=null,dir=null,swipe=null;
