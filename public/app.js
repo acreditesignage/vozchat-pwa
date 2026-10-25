@@ -21,6 +21,7 @@ const day = iso => new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month
 let toastTimer;
 function toast(msg) {const el=$('#toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3700);}
 async function api(url,{method='GET',data,headers={}}={}) {let opt={method,credentials:'same-origin',headers};if(data!==undefined){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(data);}let response;try{response=await fetch(url,opt);}catch{throw new Error('Falha na conexão com o servidor.');}let json=await response.json().catch(()=>({}));if(!response.ok)throw new Error(json.error||'Não foi possível concluir.');return json;}
+const bombPlay=window.createBombArena({api,toast,getMe:()=>me,getRoom:()=>current});
 const neonPlay=window.createNeonPlay({api,toast,getMe:()=>me,getRoom:()=>current,
   onInvitation:()=>{}
 });
@@ -30,12 +31,13 @@ const playHistory=window.createPlayHistory({
   openChat:async(roomId,gameKind)=>{
     switchMobileTab('chats');setConversationFilter('all');
     await openRoom(roomId);
-    if(gameKind==='neon-maze')await sendQuickPlayInvite('neon');
+    if(gameKind==='bomb')await sendQuickPlayInvite('bomb');
+    else if(gameKind==='neon-maze')await sendQuickPlayInvite('neon');
     else if(gameKind==='tic-tac-toe')await sendQuickPlayInvite('tic');
     else if(gameKind)openComposerPlayMenu(true);
   }
 });
-function showAuth() {window.VozChatRingtone?.stop();playPanelOpen=false;renderPlayPanel();playHistory.reset();neonPlay.reset();me=null;identities=[];rooms=[];current=null;knownIncomingRequestIds=null;$('#auth').hidden=false;$('#app').hidden=true;$('#app').classList.remove('chat-open');if(events){events.close();events=null;}}
+function showAuth() {bombPlay.reset();window.VozChatRingtone?.stop();playPanelOpen=false;renderPlayPanel();playHistory.reset();neonPlay.reset();me=null;identities=[];rooms=[];current=null;knownIncomingRequestIds=null;$('#auth').hidden=false;$('#app').hidden=true;$('#app').classList.remove('chat-open');if(events){events.close();events=null;}}
 function sortRooms() {rooms.sort((a,b)=>new Date(b.last?.createdAt||b.createdAt)-new Date(a.last?.createdAt||a.createdAt));}
 function authMode(register) {isRegister=register;$('#nameField').hidden=!register;$('#realName').required=register;$('#usernameField').hidden=register;$('#username').required=!register;$('#authDescription').textContent=register?'Escolha como quer ser chamado. Seu ID exclusivo será criado automaticamente.':'Entre com seu ID numérico (ou usuário antigo) e sua senha.';$('#authTitle').textContent=register?'Crie sua conta':'Entre na sua conta';$('#authSubmit').innerHTML=register?'Criar conta <span>→</span>':'Entrar <span>→</span>';$('#authSwitchLabel').firstChild.textContent=register?'Já possui uma conta? ':'Ainda não tem conta? ';$('#authSwitch').textContent=register?'Entrar':'Criar conta';$('#password').autocomplete=register?'new-password':'current-password';}
 $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
@@ -454,6 +456,9 @@ function connectEvents(){
     const invitation=JSON.parse(event.data);
     showIncomingPlayInvite(invitation);
   });
+  events.addEventListener('bomb-update',event=>{const game=JSON.parse(event.data);
+    bombPlay.receive(game);if(game.status!=='active')void playHistory.refresh();
+  });
   events.addEventListener('neon-update',event=>{
     const updated=JSON.parse(event.data);
     neonPlay.receive(updated);
@@ -527,14 +532,14 @@ function connectEvents(){
   });
   events.onerror=()=>{if(!navigator.onLine)$('#offline').hidden=false;};
 }
-async function openRoom(roomId){if(current!==roomId){openComposerPlayMenu(false);neonPlay.reset();$('#playChooser').hidden=true;stopLiveRadio();playGame=null;playRoomId=roomId;playPanelOpen=false;renderPlayPanel();}current=roomId;playHistory.roomOpened(roomId);$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();void refreshPlayGame(roomId);}catch(err){toast(err.message);} }
+async function openRoom(roomId){if(current!==roomId){bombPlay.reset();openComposerPlayMenu(false);neonPlay.reset();$('#playChooser').hidden=true;stopLiveRadio();playGame=null;playRoomId=roomId;playPanelOpen=false;renderPlayPanel();}current=roomId;playHistory.roomOpened(roomId);$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();void refreshPlayGame(roomId);}catch(err){toast(err.message);} }
 function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;paintAvatar($('#headerAvatar'),r.name,r.avatarUrl);$('#removeContactButton').hidden=!r.isDirect;
   const playAllowed=!!r.isDirect&&!identities.some(p=>p.id===me?.id&&p.label==='Profissional');
   $('#playButton').hidden=!playAllowed;
   $('#composerPlayButton').hidden=!playAllowed;
   if(!playAllowed)openComposerPlayMenu(false);
   playHistory.syncChat(r);
-  if(!playAllowed){neonPlay.close();$('#playChooser').hidden=true;playPanelOpen=false;$('#playPanel').hidden=true;}
+  if(!playAllowed){bombPlay.close();neonPlay.close();$('#playChooser').hidden=true;playPanelOpen=false;$('#playPanel').hidden=true;}
 }
 // VozChat Play: estado persistido e validado no servidor. Nenhuma jogada é confiada ao navegador.
 function playActionButton(label,action,css=''){
@@ -640,13 +645,13 @@ async function performPlayAction(action,position,button){
 let incomingPlay=null;
 let lastPlayAlert='';
 function showIncomingPlayInvite(invitation){
-  if(!me||!invitation||!['tic','neon'].includes(invitation.kind)||!rooms.some(r=>r.id===invitation.roomId&&r.isDirect))return;
+  if(!me||!invitation||!['tic','neon','bomb'].includes(invitation.kind)||!rooms.some(r=>r.id===invitation.roomId&&r.isDirect))return;
   if(!/^[0-9a-f-]{36}$/i.test(invitation.id||''))return;
   const key=invitation.id;
   if(lastPlayAlert===key&&$('#incomingPlayDialog').open)return;
   if($('#incomingPlayDialog').open&&incomingPlay?.id!==key)return;
   incomingPlay=invitation;lastPlayAlert=key;
-  const gameName=invitation.kind==='neon'?'Labirinto Neon':'Jogo da Velha';
+  const gameName=invitation.kind==='neon'?'Labirinto Neon':invitation.kind==='bomb'?'Arena Bomba':'Jogo da Velha';
   $('#incomingPlayTitle').textContent='🎮 Chamando para jogar!';
   $('#incomingPlayDescription').textContent=(invitation.inviterName||'Seu contato')+
     ' convidou você para '+gameName+'. Quer começar a partida agora?';
@@ -671,14 +676,15 @@ async function replyToPlayInvitation(accept){
   const buttons=[$('#incomingPlayAccept'),$('#incomingPlayDecline')];
   buttons.forEach(btn=>btn.disabled=true);
   try{
-    const endpoint=invitation.kind==='neon'?'/api/play/neon/':'/api/play/';
+    const endpoint=invitation.kind==='neon'?'/api/play/neon/':invitation.kind==='bomb'?'/api/play/bomb/':'/api/play/';
     await api(endpoint+invitation.id+(accept?'/accept':'/decline'),{method:'POST',data:{}});
     incomingPlay=null;$('#incomingPlayDialog').close();
     if(accept){
       switchMobileTab('chats');setConversationFilter('all');
       await openRoom(invitation.roomId);
       $('#playChooser').hidden=true;
-      if(invitation.kind==='neon'){playPanelOpen=false;renderPlayPanel();await neonPlay.open(invitation.roomId);}
+      if(invitation.kind==='bomb'){neonPlay.close();playPanelOpen=false;renderPlayPanel();await bombPlay.open(invitation.roomId);}
+      else if(invitation.kind==='neon'){bombPlay.close();playPanelOpen=false;renderPlayPanel();await neonPlay.open(invitation.roomId);}
       else {neonPlay.close();playPanelOpen=true;await refreshPlayGame(invitation.roomId,true);}
       toast('🎮 Partida iniciada! Divirtam-se.');
     }else toast('Convite recusado.');
@@ -697,24 +703,25 @@ function openComposerPlayMenu(force){
   $('#composerPlayButton').setAttribute('aria-expanded',String(!menu.hidden));
 }
 async function sendQuickPlayInvite(kind){
-  if(quickPlayBusy||!current||!['neon','tic'].includes(kind))return;
+  if(quickPlayBusy||!current||!['neon','tic','bomb'].includes(kind))return;
   const room=rooms.find(r=>r.id===current);
   if(!room?.isDirect)return toast('Escolha um contato aprovado para jogar.');
   const roomId=current;quickPlayBusy=true;
   for(const button of $('#composerPlayMenu').querySelectorAll('button'))button.disabled=true;
   try{
-    const endpoint=kind==='neon'?'/api/play/neon/invite':'/api/play/invite';
+    const endpoint=kind==='neon'?'/api/play/neon/invite':kind==='bomb'?'/api/play/bomb/invite':'/api/play/invite';
     await api(endpoint,{method:'POST',data:{roomId}});
     openComposerPlayMenu(false);
     if(current!==roomId)return;
     $('#playChooser').hidden=true;
-    if(kind==='neon'){playPanelOpen=false;renderPlayPanel();await neonPlay.open(roomId);}
+    if(kind==='bomb'){neonPlay.close();playPanelOpen=false;renderPlayPanel();await bombPlay.open(roomId);}
+    else if(kind==='neon'){bombPlay.close();playPanelOpen=false;renderPlayPanel();await neonPlay.open(roomId);}
     else {neonPlay.close();playPanelOpen=true;await refreshPlayGame(roomId,true);}
     toast('🎮 Convite enviado! O contato receberá uma chamada para jogar.');
   }catch(err){
     if(/convite pendente|partida em andamento|em andamento ou convite/i.test(err.message)){
       openComposerPlayMenu(false);
-      if(kind==='neon')await neonPlay.open(roomId);
+      if(kind==='bomb')await bombPlay.open(roomId);else if(kind==='neon')await neonPlay.open(roomId);
       else {playPanelOpen=true;await refreshPlayGame(roomId,true);}
       toast('Há uma partida ou convite pendente. Abra o jogo para continuar.');
     }else toast(err.message);
@@ -724,9 +731,11 @@ async function sendQuickPlayInvite(kind){
   }
 }
 $('#composerPlayButton').addEventListener('click',()=>openComposerPlayMenu());
+$('#composerInviteBomb').addEventListener('click',()=>void sendQuickPlayInvite('bomb'));
 $('#composerInviteNeon').addEventListener('click',()=>void sendQuickPlayInvite('neon'));
 $('#composerInviteTic').addEventListener('click',()=>void sendQuickPlayInvite('tic'));
 $('#playButton').addEventListener('click',()=>{
+  bombPlay.close();
   if(!$('#playChooser').hidden){
     $('#playChooser').hidden=true;return;
   }
@@ -737,6 +746,10 @@ $('#chooseTicTacToe').addEventListener('click',()=>{
   $('#playChooser').hidden=true;neonPlay.close();
   playPanelOpen=true;renderPlayPanel();
   void refreshPlayGame(current,true);
+});
+$('#chooseBombArena').addEventListener('click',()=>{
+  $('#playChooser').hidden=true;neonPlay.close();playPanelOpen=false;renderPlayPanel();
+  void bombPlay.open(current);
 });
 $('#chooseNeonMaze').addEventListener('click',()=>{
   $('#playChooser').hidden=true;playPanelOpen=false;renderPlayPanel();
@@ -750,7 +763,16 @@ function renderMessage(m){
   if(m.senderId!==me.id){const av=document.createElement('div');av.className='sender-avatar';av.textContent=avatar(m.senderName);row.append(av);}
   const bubble=document.createElement('div');bubble.className='bubble';
   if(m.senderId!==me.id){const author=document.createElement('p');author.className='bubble-author';author.textContent=m.senderName;bubble.append(author);}
-  if(m.type==='maze'&&m.mazeId){
+  if(m.type==='bomb'&&m.bombId){
+    const card=document.createElement('div');card.className='game-invite-card';
+    const title=document.createElement('strong');title.textContent='💣 Arena Bomba';
+    const note=document.createElement('small');note.textContent='Duelo arcade: direcional e botão de bomba.';
+    const button=document.createElement('button');button.type='button';button.className='game-open-button';
+    button.textContent='Abrir arena';button.addEventListener('click',()=>{
+      neonPlay.close();playPanelOpen=false;renderPlayPanel();void bombPlay.open(m.roomId);
+    });
+    card.append(title,note,button);bubble.append(card);
+  }else if(m.type==='maze'&&m.mazeId){
     const card=document.createElement('div');card.className='game-invite-card';
     const title=document.createElement('strong');title.textContent='🎮 Labirinto Neon';
     const note=document.createElement('small');note.textContent='Uma aventura cooperativa com luzes e drones. Convite privado.';
@@ -798,7 +820,7 @@ function openDialog(id){document.getElementById(id).showModal();}
 
 function resetActiveChat(){
   openComposerPlayMenu(false);
-  current=null;messages=[];playGame=null;playRoomId=null;playPanelOpen=false;
+  bombPlay.reset();current=null;messages=[];playGame=null;playRoomId=null;playPanelOpen=false;
   playHistory.syncChat(null);playHistory.sync();neonPlay.reset();$('#playChooser').hidden=true;renderPlayPanel();
   $('#app').classList.remove('chat-open');
   $('#emptyChat').hidden=false;$('#activeChat').hidden=true;
