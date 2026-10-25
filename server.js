@@ -225,11 +225,11 @@ async function notifyMembers(room, sender, msg) {
     tag:'vozchat-'+room.id,
     messageId:msg.id
   });
-  const subscriptions=(db.pushSubscriptions||[]).filter(s=>recipients.has(s.uid));
+  const subscriptions=(db.pushSubscriptions||[]).map(record=>({record,recipientId:recipientForSubscription(record,[...recipients])})).filter(item=>item.recipientId);
   if(!subscriptions.length)return;
   let changed=false;
-  await Promise.allSettled(subscriptions.map(async record=>{
-    try { await webPush.sendNotification(record.subscription,payload,{TTL:3600,urgency:'high',timeout:10000}); }
+  await Promise.allSettled(subscriptions.map(async ({record,recipientId})=>{
+    try { await webPush.sendNotification(record.subscription,JSON.stringify({...JSON.parse(payload),profileId:recipientId}),{TTL:3600,urgency:'high',timeout:10000}); }
     catch(err) {
       if(err?.statusCode===404||err?.statusCode===410) {
         db.pushSubscriptions=db.pushSubscriptions.filter(s=>s!==record);changed=true;
@@ -241,11 +241,11 @@ async function notifyMembers(room, sender, msg) {
 // Push de eventos pessoais, sem expor endpoints nem chaves.
 async function deliverPersonalPush(uid,payload,ttl=3600){
   if(!webPush)return {registered:0,accepted:0,failed:0};
-  const records=(db.pushSubscriptions||[]).filter(s=>s.uid===uid);
+  const records=(db.pushSubscriptions||[]).filter(s=>recipientForSubscription(s,[uid]));
   let accepted=0,failed=0,changed=false;
   await Promise.allSettled(records.map(async record=>{
     try{
-      await webPush.sendNotification(record.subscription,JSON.stringify(payload),
+      await webPush.sendNotification(record.subscription,JSON.stringify({...payload,profileId:uid}),
         {TTL:ttl,urgency:'high',timeout:10000});
       accepted++;
     }catch(err){
@@ -273,9 +273,30 @@ function push(userIds, type, data) { const event = `event: ${type}\ndata: ${JSON
 function json(res,status,payload,headers={}) { res.writeHead(status, {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers}); res.end(JSON.stringify(payload)); }
 function error(res,status,message) { json(res,status,{error:message}); }
 function cookie(req) { return Object.fromEntries((req.headers.cookie||'').split(';').map(s=>s.trim().split('=').slice(0,2)).filter(p=>p[0])); }
-function userFrom(req) { const token = cookie(req).vozchat_session; if(!token) return null; const sess=db.sessions.find(s=>s.hash===sha(token) && s.expires>Date.now()); return sess ? db.users.find(u=>u.id===sess.uid) : null; }
+function sessionFrom(req) {
+  const token=cookie(req).vozchat_session;
+  return token?db.sessions.find(s=>s.hash===sha(token)&&s.expires>Date.now()):null;
+}
+function accountOwner(user){return user?.ownerId?db.users.find(u=>u.id===user.ownerId&&!u.ownerId):user;}
+function ownerIdFor(userId){const person=db.users.find(u=>u.id===userId);return accountOwner(person)?.id||null;}
+function recipientForSubscription(record,ids){
+  const accountId=ownerIdFor(record.uid);
+  return accountId?ids.find(uid=>ownerIdFor(uid)===accountId):null;
+}
+function userFrom(req) {
+  const sess=sessionFrom(req);if(!sess)return null;
+  const person=db.users.find(u=>u.id===sess.uid);
+  return person && ownerIdFor(person.id)===(sess.ownerUid||sess.uid)?person:null;
+}
+function identitiesView(user){
+  const root=accountOwner(user);
+  return db.users.filter(u=>u.id===root.id||u.ownerId===root.id)
+    .sort((a,b)=>a.id===root.id?-1:b.id===root.id?1:(a.identityType||'').localeCompare(b.identityType||''))
+    .map(profile=>({id:profile.id,label:profile.id===root.id?'Pessoal':profile.identityType,
+      name:profile.name,publicId:profile.publicId,avatarUrl:avatarUrl(profile),active:profile.id===user.id}));
+}
 function sessionCookie(req,token,maxAge) { const secure = req.socket.encrypted || req.headers['x-forwarded-proto']==='https'; return `vozchat_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure?'; Secure':''}`; }
-async function newSession(req,res,u) { const token=rand(36); db.sessions=db.sessions.filter(s=>s.expires>Date.now()).slice(-3000); db.sessions.push({hash:sha(token),uid:u.id,expires:Date.now()+30*86400000}); await save(); return sessionCookie(req,token,30*86400); }
+async function newSession(req,res,u) { const token=rand(36); db.sessions=db.sessions.filter(s=>s.expires>Date.now()).slice(-3000); db.sessions.push({hash:sha(token),uid:u.id,ownerUid:u.id,expires:Date.now()+30*86400000}); await save(); return sessionCookie(req,token,30*86400); }
 async function ensurePublicIds() {
   // IDs públicos começam em 10 e crescem sem limite fixo de dígitos.
   const taken=new Set();
@@ -375,15 +396,15 @@ function finishCall(call,reason='ended'){
 async function alertIncomingCall(call){
   if(!webPush)return;
   const recipients=new Set(call.invitees.filter(uid=>uid!==call.callerId));
-  const subscriptions=(db.pushSubscriptions||[]).filter(p=>recipients.has(p.uid));
+  const subscriptions=(db.pushSubscriptions||[]).map(record=>({record,recipientId:recipientForSubscription(record,[...recipients])})).filter(item=>item.recipientId);
   if(!subscriptions.length)return;
   const title=call.kind==='video'?'📹 Chamada de vídeo':'📞 Chamada de áudio';
   const payload=JSON.stringify({title:call.callerName+' · '+title,
     body:'Toque para atender no VozChat.',kind:'call',roomId:call.roomId,
     callId:call.id,tag:'vozchat-call-'+call.id});
   let dirty=false;
-  await Promise.allSettled(subscriptions.map(async record=>{
-    try{await webPush.sendNotification(record.subscription,payload,
+  await Promise.allSettled(subscriptions.map(async ({record,recipientId})=>{
+    try{await webPush.sendNotification(record.subscription,JSON.stringify({...JSON.parse(payload),profileId:recipientId}),
       {TTL:60,urgency:'high',timeout:7000});}
     catch(e){
       if(e?.statusCode===404||e?.statusCode===410){
@@ -427,7 +448,7 @@ async function api(req,res,url) {
       if(!username)username='u'+publicId;
       const u={id:id(),name,username,publicId,password:passwordHash(password),createdAt:new Date().toISOString()}; db.users.push(u); const ck=await newSession(req,res,u); return json(res,201,{user:safeUser(u)},{'Set-Cookie':ck});
     }
-    const u=db.users.find(x=>x.username===username||x.publicId===username);
+    const u=db.users.find(x=>!x.ownerId&&(x.username===username||x.publicId===username));
     if(!u||!matchesPassword(password,u.password)) {const times=(loginAttempts.get(rateKey)||[]).filter(t=>Date.now()-t<15*60*1000);times.push(Date.now());loginAttempts.set(rateKey,times);return error(res,401,'Usuário ou senha incorretos. Se a conta foi criada antes da correção, talvez seja necessário criar outra.');}
     loginAttempts.delete(rateKey);
     const ck=await newSession(req,res,u); return json(res,200,{user:safeUser(u)},{'Set-Cookie':ck});
@@ -435,11 +456,53 @@ async function api(req,res,url) {
   const u=userFrom(req);
   if(!u) return error(res,401,'Faça login para continuar.');
   if(method==='POST'&&p==='/api/logout') { const token=cookie(req).vozchat_session; db.sessions=db.sessions.filter(s=>s.hash!==sha(token||'')); await save(); return json(res,200,{ok:true},{'Set-Cookie':sessionCookie(req,'',0)}); }
-  if(method==='GET'&&p==='/api/bootstrap') return json(res,200,{user:safeUser(u),rooms:db.rooms.filter(r=>!r.inactive&&r.members.includes(u.id)).map(r=>roomView(r,u.id))});
+  if(method==='GET'&&p==='/api/bootstrap') return json(res,200,{user:safeUser(u),identities:identitiesView(u),rooms:db.rooms.filter(r=>!r.inactive&&r.members.includes(u.id)).map(r=>roomView(r,u.id))});
+  if(method==='GET'&&p==='/api/identities')return json(res,200,{identities:identitiesView(u)});
+  if(method==='POST'&&p==='/api/identities'){
+    const input=JSON.parse((await body(req,2048)).toString('utf8'));
+    const label=String(input.label||'');
+    if(!['Profissional','Família'].includes(label))return error(res,400,'Escolha Profissional ou Família.');
+    const root=accountOwner(u);
+    if(db.users.some(person=>person.ownerId===root.id&&person.identityType===label))
+      return error(res,409,'Esse perfil já existe. Abra-o na lista.');
+    const name=String(input.name||'').trim();
+    if(name.length<2||name.length>48)return error(res,400,'Digite um apelido de 2 a 48 caracteres para o perfil.');
+    const publicId=allocatePublicId();
+    const profile={id:id(),ownerId:root.id,identityType:label,name,username:'u'+publicId,
+      publicId,password:null,createdAt:new Date().toISOString()};
+    db.users.push(profile);await save();
+    return json(res,201,{profile:identitiesView(u).find(p=>p.id===profile.id),identities:identitiesView(u)});
+  }
+  const identitySwitch=/^\/api\/identities\/([0-9a-f-]{36})\/activate$/.exec(p);
+  if(method==='POST'&&identitySwitch){
+    const session=sessionFrom(req),root=accountOwner(u);
+    const chosen=db.users.find(profile=>profile.id===identitySwitch[1]&&
+      (profile.id===root.id||profile.ownerId===root.id));
+    if(!session||!chosen)return error(res,404,'Perfil não encontrado nesta conta.');
+    session.uid=chosen.id;session.ownerUid=root.id;
+    await save();return json(res,200,{user:safeUser(chosen),identities:identitiesView(chosen)});
+  }
+  const identityEdit=/^\/api\/identities\/([0-9a-f-]{36})$/.exec(p);
+  if(method==='PATCH'&&identityEdit){
+    const root=accountOwner(u);
+    const profile=db.users.find(entry=>entry.id===identityEdit[1]&&
+      (entry.id===root.id||entry.ownerId===root.id));
+    if(!profile)return error(res,404,'Perfil não encontrado nesta conta.');
+    const input=JSON.parse((await body(req,2048)).toString('utf8'));
+    const name=String(input.name||'').trim();
+    if(name.length<2||name.length>48)return error(res,400,'Digite um apelido de 2 a 48 caracteres.');
+    profile.name=name;await save();
+    const related=new Set([profile.id]);
+    for(const room of db.rooms.filter(r=>!r.inactive&&r.members.includes(profile.id)))
+      for(const uid of room.members){related.add(uid);push([uid],'room',roomView(room,uid));}
+    emitContactRequests([...related]);
+    push([...related],'profile-updated',{userId:profile.id,avatarUrl:avatarUrl(profile)});
+    return json(res,200,{profile:identitiesView(u).find(p=>p.id===profile.id),identities:identitiesView(u)});
+  }
   if(method==='GET'&&p==='/api/events') { res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-store, must-revalidate','Connection':'keep-alive','X-Accel-Buffering':'no'}); res.write(': connected\n\n'); const set=clients.get(u.id)||new Set(); set.add(res); clients.set(u.id,set); const keep=setInterval(()=>{try{res.write(': ping\n\n');}catch{}},20000); req.on('close',()=>{clearInterval(keep);set.delete(res);if(!set.size)clients.delete(u.id);}); return; }
   if(method==='GET'&&p==='/api/push/config') return json(res,200,{
     enabled:pushEnabled,publicKey:pushEnabled?VAPID_PUBLIC_KEY:null,
-    registered:(db.pushSubscriptions||[]).filter(record=>record.uid===u.id).length
+    registered:(db.pushSubscriptions||[]).filter(record=>recipientForSubscription(record,[u.id])).length
   });
   if(method==='POST'&&p==='/api/push/test'){
     if(!pushEnabled)return error(res,503,'As chaves de notificacoes push nao estao configuradas no servidor.');
@@ -462,7 +525,7 @@ async function api(req,res,url) {
     db.pushSubscriptions ||= [];
     const endpoint=input.subscription.endpoint;
     db.pushSubscriptions=db.pushSubscriptions.filter(s=>s.subscription?.endpoint!==endpoint);
-    const own=db.pushSubscriptions.filter(s=>s.uid===u.id);
+    const own=db.pushSubscriptions.filter(s=>recipientForSubscription(s,[u.id]));
     if(own.length>=6) {
       const oldest=own.sort((a,b)=>a.createdAt-b.createdAt)[0];
       db.pushSubscriptions=db.pushSubscriptions.filter(s=>s!==oldest);
@@ -474,7 +537,7 @@ async function api(req,res,url) {
   if(method==='POST'&&p==='/api/push/unsubscribe') {
     const input=JSON.parse((await body(req,4096)).toString('utf8'));
     if(typeof input.endpoint!=='string')return error(res,400,'Endpoint inválido.');
-    db.pushSubscriptions=(db.pushSubscriptions||[]).filter(s=>!(s.uid===u.id&&s.subscription?.endpoint===input.endpoint));
+    db.pushSubscriptions=(db.pushSubscriptions||[]).filter(s=>!(recipientForSubscription(s,[u.id])&&s.subscription?.endpoint===input.endpoint));
     await save();
     return json(res,200,{ok:true});
   }
@@ -507,7 +570,7 @@ async function deactivateDirectRoom(room){
     if(!/^[1-9][0-9]{1,79}$/.test(publicId))return error(res,400,'Informe um ID numérico com pelo menos 2 dígitos.');
     const target=db.users.find(x=>x.publicId===publicId);
     if(!target)return error(res,404,'Nenhuma pessoa encontrada com esse ID.');
-    if(target.id===u.id)return error(res,400,'Esse ID pertence à sua própria conta.');
+    if(ownerIdFor(target.id)===ownerIdFor(u.id))return error(res,400,'Esse ID pertence a outro perfil da sua conta.');
     const pair=[u.id,target.id].sort().join(':');
     const room=db.rooms.find(r=>r.directKey===pair&&!r.inactive);
     if(room)return json(res,200,{status:'connected',room:roomView(room,u.id),contact:safeUser(target)});
@@ -748,6 +811,8 @@ async function deactivateDirectRoom(room){
       const target=db.users.find(x=>x.publicId===publicId);
       if(!target)return error(res,404,'Pessoa não encontrada.');
       if(r.members.includes(target.id))return error(res,409,'Essa pessoa já participa do grupo.');
+      if(r.members.some(memberId=>ownerIdFor(memberId)===ownerIdFor(target.id)))
+        return error(res,409,'Outro perfil dessa conta já participa deste grupo.');
       if(r.members.length>=100)return error(res,409,'Limite de 100 participantes por grupo.');
       r.members.push(target.id);await save();
       publishGroupChange(r);
