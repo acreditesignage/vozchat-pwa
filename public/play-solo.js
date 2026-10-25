@@ -109,9 +109,9 @@ function createPlaySolo({getProfileId,returnToHub,toast}){
     }
     const p=maze.players[0];
     const x=OX+(p.x+.5)*C,y=OY+(p.y+.5)*C;
-    ctx.fillStyle='#68f3ea';ctx.shadowColor='#68f3ea';ctx.shadowBlur=14;
-    ctx.beginPath();ctx.arc(x,y,11,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
-    ctx.fillStyle='#102437';ctx.beginPath();ctx.arc(x+4,y-2,2,0,Math.PI*2);ctx.fill();
+    const art=window.VozChatArcadeArt?.drawHero;
+    if(art)art(ctx,x,y,12,'#60e9fb',p.direction||'right',true);
+    else {ctx.fillStyle='#68f3ea';ctx.beginPath();ctx.arc(x,y,11,0,Math.PI*2);ctx.fill();}
     score.textContent='✦ '+maze.score+' pontos · '+maze.lives+' vida'+(maze.lives===1?'':'s');
     if(maze.status==='won')status.textContent='🏆 Labirinto concluído! Todas as luzes coletadas.';
     else if(maze.status==='lost')status.textContent='Fim de jogo! Os drones venceram.';
