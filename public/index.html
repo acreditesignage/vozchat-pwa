@@ -64,6 +64,10 @@
         <section id="playChooser" class="play-chooser" hidden aria-label="Escolher jogo no VozChat Play">
           <div class="play-chooser-head"><strong>🎮 VozChat Play</strong><span>Escolha uma aventura para dois contatos</span></div>
           <div class="play-chooser-grid">
+            <button id="chooseBombArena" class="play-chooser-game" type="button">
+              <span class="play-chooser-art play-bomb-art" aria-hidden="true">💣 ✦ 💥</span>
+              <strong>Arena Bomba</strong><small>Blocos, explosões e duelo com um contato</small>
+            </button>
             <button id="chooseNeonMaze" class="play-chooser-game" type="button">
               <span class="play-chooser-art play-neon-art" aria-hidden="true">✦ <b>◆</b> ✧</span>
               <strong>Labirinto Neon</strong><small>Recolha luzes e escape dos drones, juntos</small>
@@ -73,6 +77,27 @@
               <strong>Jogo da Velha</strong><small>Duelo rápido de estratégia</small>
             </button>
           </div>
+        </section>
+        <section id="bombPanel" class="bomb-panel" hidden aria-label="Arena Bomba: duelo privado">
+          <div class="bomb-heading">
+            <div class="bomb-logo">💣</div><div class="bomb-heading-info"><strong>Arena Bomba</strong><small>Duelo de arcade · 2 jogadores</small></div>
+            <button id="bombClose" class="play-close" type="button" aria-label="Fechar Arena Bomba e voltar ao chat">×</button>
+          </div>
+          <div id="bombScore" class="bomb-score">Dois jogadores · uma arena</div>
+          <p id="bombStatus" class="bomb-status" role="status" aria-live="polite">Convide alguém para começar.</p>
+          <canvas id="bombCanvas" width="520" height="440" aria-label="Tabuleiro Arena Bomba com dois personagens e blocos"></canvas>
+          <div id="bombActions" class="bomb-actions"></div>
+          <div class="bomb-controls">
+            <div id="bombDpad" class="bomb-dpad" aria-label="Direcional em cruz">
+              <button type="button" class="bomb-up" data-bomb-dir="up" aria-label="Para cima">▲</button>
+              <button type="button" class="bomb-left" data-bomb-dir="left" aria-label="Para esquerda">◀</button>
+              <span class="bomb-center" aria-hidden="true"></span>
+              <button type="button" class="bomb-right" data-bomb-dir="right" aria-label="Para direita">▶</button>
+              <button type="button" class="bomb-down" data-bomb-dir="down" aria-label="Para baixo">▼</button>
+            </div>
+            <button id="bombPlace" type="button" class="bomb-drop" aria-label="Colocar bomba" disabled><span>💣</span><small>BOMBA</small></button>
+          </div>
+          <p class="bomb-hint">Segure o direcional para andar. Toque em BOMBA e afaste-se antes da explosão.</p>
         </section>
         <section id="neonPanel" class="neon-panel" hidden aria-label="Labirinto Neon · jogo cooperativo">
           <div class="neon-heading">
@@ -116,6 +141,7 @@
         <div id="messages" class="messages" aria-live="polite" aria-label="Mensagens da conversa"></div>
         <div class="composer-zone"><div class="attachment-picker" id="attachmentPicker" hidden><button type="button" data-pick="camera">📷 <span>Tirar foto</span></button><button type="button" data-pick="photo">🖼️ <span>Fotos</span></button><button type="button" data-pick="video">🎬 <span>Vídeo</span></button><button type="button" data-pick="file">📎 <span>Arquivo</span></button></div><div class="emoji-picker" id="emojiPicker" role="group" aria-label="Escolher emoji" hidden></div><input id="cameraInput" type="file" accept="image/*" capture="environment" hidden><input id="photoInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif" multiple hidden><input id="videoInput" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v,video/3gpp" multiple hidden><input id="fileInput" type="file" accept=".pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z,.rar,.odt,.ods,.odp,.dcm,.dwg,.dxf,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.mp4,.mov,.webm,.m4v,.3gp" multiple hidden><div class="recording" id="recording" hidden><div class="record-dot"></div><span id="recordTime">Gravando · 0:00</span><button id="cancelAudio" type="button" class="cancel-button">Cancelar</button></div><div id="composerPlayMenu" class="composer-play-menu" hidden role="group" aria-label="Convidar contato para jogar">
         <span>🎮 Chamar para jogar</span>
+        <button type="button" id="composerInviteBomb">💣 Arena Bomba</button>
         <button type="button" id="composerInviteNeon">✦ Labirinto Neon</button>
         <button type="button" id="composerInviteTic">✕ ○ Jogo da Velha</button>
       </div><form id="composer" class="composer"><button id="attachButton" type="button" class="tool-button" aria-label="Anexar foto, vídeo ou arquivo" title="Anexar foto, vídeo ou arquivo" aria-expanded="false">+</button><button id="composerPlayButton" type="button" class="composer-play-button" aria-label="Convidar este contato para jogar" title="Chamar para jogar" aria-expanded="false" hidden>🎮</button><button id="emojiButton" type="button" class="tool-button emoji-button" aria-label="Escolher emoji" title="Emojis" aria-expanded="false">☺</button><textarea id="msgInput" rows="1" placeholder="Escreva uma mensagem..." aria-label="Mensagem" maxlength="2000"></textarea><button id="micButton" type="button" title="Gravar mensagem de voz" aria-label="Iniciar gravação" class="mic-button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8"/></svg></button><button class="send-button" aria-label="Enviar mensagem" title="Enviar mensagem" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button></form><small class="composer-note">Envie fotos, vídeos ou arquivos de até 1 GB. Microfone: toque para gravar e novamente para enviar.</small></div>
@@ -129,6 +155,11 @@
     <p>Suas partidas e seus contatos neste perfil. Fechar a conversa não apaga o histórico.</p>
     <div class="play-hub-intro"><strong>Escolha seu jogo</strong><small>Você pode jogar sozinho ou convidar um contato aprovado.</small></div>
     <div class="play-hub-games">
+      <div class="play-hub-game-card">
+        <div class="play-hub-game-art play-hub-bomb-art">💣 💥</div>
+        <strong>Arena Bomba</strong><small>Destrua caixas e escape das explosões.</small>
+        <div class="play-hub-game-actions"><button id="playHubDuoBomb" type="button" class="play-hub-primary">👥 Convidar contato</button></div>
+      </div>
       <div class="play-hub-game-card">
         <div class="play-hub-game-art play-hub-neon-art">✦ ◉ ◆</div>
         <strong>Labirinto Neon</strong><small>Colete luzes e escape dos drones.</small>
@@ -312,6 +343,8 @@
   <script defer src="/theme.js"></script>
   <script defer src="/install-guide.js"></script>
   <script defer src="/call-ringtone.js"></script>
+  <script defer src="/arcade-art.js"></script>
+  <script defer src="/bomb-arena-ui.js"></script>
   <script defer src="/neon-maze-ui.js"></script>
   <script defer src="/play-solo.js"></script>
   <script defer src="/play-history.js"></script>
