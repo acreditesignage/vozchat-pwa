@@ -526,3 +526,162 @@ html[data-theme="dark"] .appearance-toggle .appearance-moon{display:none}
  .composer-play-menu>span{width:100%}
  .incoming-play-dialog{padding:22px 17px}
 }
+
+
+/* VozChat Play V2 — um jogo por vez em tela própria; preserva o chat atrás. */
+html.vozchat-game-active,html.vozchat-game-active body{
+  overflow:hidden!important;overscroll-behavior:none;
+}
+#chatPlayBar,.chat-play-bar{display:none!important}
+#playButton{display:none!important}
+.neon-panel.game-fullscreen,.play-panel.game-fullscreen{
+  position:fixed!important;inset:0!important;z-index:6000!important;
+  width:100%!important;max-width:none!important;
+  height:100dvh!important;max-height:100dvh!important;
+  min-height:0!important;box-sizing:border-box!important;
+  display:flex!important;flex-direction:column!important;
+  align-items:center!important;justify-content:flex-start!important;
+  gap:clamp(5px,1.1dvh,10px)!important;
+  padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right))
+    max(10px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))!important;
+  margin:0!important;border:0!important;border-radius:0!important;
+  background:var(--ui-card)!important;color:var(--ui-text)!important;
+  overflow-x:hidden!important;overflow-y:auto!important;
+  overscroll-behavior:contain!important;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-y;
+}
+.neon-panel.game-fullscreen[hidden],.play-panel.game-fullscreen[hidden]{display:none!important}
+.neon-panel.game-fullscreen .neon-heading,
+.neon-panel.game-fullscreen .neon-scorebar,
+.neon-panel.game-fullscreen .neon-status,
+.neon-panel.game-fullscreen .neon-actions,
+.neon-panel.game-fullscreen .neon-hint,
+.play-panel.game-fullscreen .play-head,
+.play-panel.game-fullscreen .play-players,
+.play-panel.game-fullscreen .play-status,
+.play-panel.game-fullscreen .play-actions{
+  width:min(100%,520px)!important;
+}
+.neon-panel.game-fullscreen .neon-heading{
+  flex:none;min-height:48px;
+}
+.neon-panel.game-fullscreen .neon-heading-title strong{font-size:17px}
+.neon-panel.game-fullscreen .neon-heading-title small{font-size:12px}
+.neon-panel.game-fullscreen .neon-scorebar{font-size:15px;min-height:20px}
+.neon-panel.game-fullscreen .neon-status{font-size:13px!important;min-height:18px}
+.neon-panel.game-fullscreen #neonCanvas{
+  flex:none;width:min(100%,520px,calc((100dvh - 335px) * 17 / 13))!important;
+  min-width:0;max-width:100%!important;
+  height:auto!important;aspect-ratio:17/13;
+  touch-action:none!important;-webkit-user-select:none;user-select:none;
+  -webkit-touch-callout:none;display:block;
+}
+.neon-panel.game-fullscreen .neon-actions{flex:none;min-height:42px;gap:11px}
+.neon-panel.game-fullscreen .neon-actions button{
+  font-size:14px;min-height:46px;padding:11px 18px;border-radius:14px;
+}
+.neon-panel.game-fullscreen .neon-pad{
+  flex:none;gap:7px!important;margin:2px auto 0;
+  touch-action:none!important;
+}
+.neon-panel.game-fullscreen .neon-pad>div{gap:12px!important}
+.neon-panel.game-fullscreen .neon-pad button{
+  display:grid;place-items:center;
+  width:clamp(53px,14vw,64px)!important;
+  height:clamp(51px,6.4dvh,60px)!important;
+  font-size:22px!important;
+  border-radius:15px!important;
+  border:1px solid var(--ui-edge);
+  background:var(--ui-soft);
+  color:var(--ui-accent);
+  touch-action:none!important;
+  -webkit-tap-highlight-color:transparent;
+  -webkit-user-select:none;user-select:none;
+  transition:background-color .1s ease,transform .1s ease;
+}
+.neon-panel.game-fullscreen .neon-pad button.is-pressed,
+.neon-panel.game-fullscreen .neon-pad button:active{
+  transform:scale(.93);background:var(--ui-accent);color:white;
+  border-color:var(--ui-accent);
+}
+.neon-panel.game-fullscreen .neon-hint{flex:none;font-size:11px!important}
+.neon-panel.game-fullscreen .play-close,
+.play-panel.game-fullscreen .play-close{
+  display:grid;place-items:center;min-width:44px;min-height:44px;
+  font-size:27px;border-radius:14px;
+}
+.play-panel.game-fullscreen{justify-content:flex-start!important;gap:16px!important}
+.play-panel.game-fullscreen .play-board{width:min(290px,72vw)!important;max-width:100%}
+.play-panel.game-fullscreen .play-square{font-size:48px;min-width:0}
+.play-panel.game-fullscreen .play-status{font-size:15px!important}
+.play-panel.game-fullscreen .play-actions button{min-height:47px;padding:12px 16px;font-size:14px}
+@media(max-width:630px){
+  .neon-panel.game-fullscreen,.play-panel.game-fullscreen{
+    padding-top:max(12px,env(safe-area-inset-top))!important;
+    padding-bottom:max(12px,env(safe-area-inset-bottom))!important;
+  }
+  .neon-panel.game-fullscreen #neonCanvas{
+    width:min(100%,calc((100dvh - 340px) * 17 / 13))!important;
+  }
+  .neon-panel.game-fullscreen .neon-pad{gap:6px!important}
+  .neon-panel.game-fullscreen .neon-pad>div{gap:10px!important}
+}
+@media(max-height:680px){
+  .neon-panel.game-fullscreen,.play-panel.game-fullscreen{gap:4px!important}
+  .neon-panel.game-fullscreen .neon-heading{min-height:42px}
+  .neon-panel.game-fullscreen .neon-hint{display:none}
+  .neon-panel.game-fullscreen #neonCanvas{
+    width:min(100%,calc((100dvh - 305px) * 17 / 13))!important
+  }
+  .neon-panel.game-fullscreen .neon-pad button{height:48px!important}
+}
+
+
+/* O jogo solo usa o diálogo nativo (top layer) ocupando a tela útil. */
+#playSoloDialog.play-solo-dialog{
+  position:fixed!important;inset:0!important;top:0!important;left:0!important;
+  margin:0!important;max-width:none!important;max-height:none!important;
+  width:100%!important;height:100dvh!important;min-height:0!important;
+  border:0!important;border-radius:0!important;box-sizing:border-box!important;
+  padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right))
+    max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))!important;
+  background:var(--ui-card)!important;color:var(--ui-text)!important;
+  overflow-x:hidden!important;overflow-y:auto!important;
+  overscroll-behavior:contain!important;
+}
+#playSoloDialog.play-solo-dialog[hidden],
+#playSoloDialog [hidden]{display:none!important}
+#playSoloDialog .dialog-head,#playSoloDialog .play-solo-head,
+#playSoloDialog .play-solo-status,#playSoloDialog .play-solo-actions,
+#playSoloDialog .play-solo-note{
+  width:min(100%,520px);margin-left:auto!important;margin-right:auto!important;
+}
+#playSoloDialog .play-solo-head h2{font-size:18px}
+#playSoloDialog #playSoloCanvas{
+  display:block;width:min(100%,510px,calc((100dvh - 330px) * 17 / 13))!important;
+  min-width:0;max-width:100%!important;margin:7px auto!important;
+  aspect-ratio:17/13;height:auto!important;touch-action:none!important;
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
+}
+#playSoloDialog .play-solo-dpad{gap:7px!important;margin:8px auto!important}
+#playSoloDialog .play-solo-dpad>div{gap:12px!important}
+#playSoloDialog .play-solo-dpad button{
+  width:clamp(53px,14vw,64px)!important;height:clamp(51px,6.4dvh,60px)!important;
+  border-radius:15px!important;font-size:22px!important;
+  touch-action:none!important;-webkit-user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  transition:background-color .1s ease,transform .1s ease;
+}
+#playSoloDialog .play-solo-dpad button.is-pressed,
+#playSoloDialog .play-solo-dpad button:active{
+  background:var(--ui-accent);color:white;transform:scale(.93);
+}
+#playSoloDialog .play-solo-actions button{min-height:45px;font-size:13px}
+#playSoloDialog .play-solo-tic-board{width:min(300px,76vw)!important;max-width:100%;margin:15px auto}
+#playSoloDialog .play-solo-tic-square{font-size:46px}
+@media(max-height:680px){
+  #playSoloDialog #playSoloCanvas{width:min(100%,calc((100dvh - 300px) * 17 / 13))!important}
+  #playSoloDialog .play-solo-dpad button{height:48px!important}
+  #playSoloDialog .play-solo-note{display:none}
+}
