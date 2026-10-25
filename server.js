@@ -530,7 +530,7 @@ async function api(req,res,url) {
       return json(res,201,{game:playView(game)});
     });
   }
-  const gameAction=/^\/api\/play\/([0-9a-f-]{36})\/(accept|decline|cancel|move)$/.exec(p);
+  const gameAction=/^\/api\/play\/([0-9a-f-]{36})\/(accept|decline|cancel|move|resign)$/.exec(p);
   if(method==='POST'&&gameAction){
     const gameId=gameAction[1],action=gameAction[2];
     const input=action==='move'?JSON.parse((await body(req,1024)).toString('utf8')):{};
@@ -549,6 +549,9 @@ async function api(req,res,url) {
         if(game.status!=='pending')return error(res,409,'Este convite não está mais pendente.');
         if(u.id!==game.inviterId)return error(res,403,'Somente quem convidou pode cancelar.');
         game.status='canceled';
+      }else if(action==='resign'){
+        if(game.status!=='active')return error(res,409,'A partida ainda não está ativa ou já terminou.');
+        game.status='abandoned';game.winner=game.users.find(uid=>uid!==u.id);
       }else{
         if(game.status!=='active')return error(res,409,'A partida ainda não está ativa ou já terminou.');
         const symbol=game.users.indexOf(u.id)===0?'X':'O';
