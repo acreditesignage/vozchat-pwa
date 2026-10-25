@@ -1,5 +1,5 @@
 // VozChat Play · Labirinto Neon. Gráficos vetoriais originais, sem assets externos.
-export function createNeonPlay({api,toast,getMe,getRoom,onInvitation}){
+function createNeonPlay({api,toast,getMe,getRoom,onInvitation}){
   const $=id=>document.getElementById(id);
   const panel=$('neonPanel'),canvas=$('neonCanvas'),ctx=canvas.getContext('2d');
   const actions=$('neonActions'),status=$('neonStatus'),score=$('neonScore'),lives=$('neonLives');
@@ -175,3 +175,5 @@ export function createNeonPlay({api,toast,getMe,getRoom,onInvitation}){
     }
   };
 }
+
+window.createNeonPlay=createNeonPlay;
