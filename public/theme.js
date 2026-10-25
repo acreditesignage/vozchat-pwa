@@ -22,6 +22,12 @@
       control.setAttribute('aria-pressed',String(selected));
       control.classList.toggle('is-selected',selected);
     }
+    for(const control of document.querySelectorAll('[data-theme-toggle]')){
+      const label=theme==='dark'?'Ativar tema claro':'Ativar tema escuro';
+      control.setAttribute('aria-label',label);
+      control.setAttribute('title',label);
+      control.setAttribute('aria-pressed',String(theme==='dark'));
+    }
     const status=document.getElementById('themeCurrentLabel');
     if(status)status.textContent=current==='auto'?'Acompanha o tema do iPhone ou Android':
       current==='light'?'Sempre claro':'Sempre escuro';
@@ -39,6 +45,9 @@
   document.addEventListener('DOMContentLoaded',()=>{
     for(const button of document.querySelectorAll('[data-theme-value]')){
       button.addEventListener('click',()=>set(button.dataset.themeValue));
+    }
+    for(const button of document.querySelectorAll('[data-theme-toggle]')){
+      button.addEventListener('click',()=>set(effective()==='dark'?'light':'dark'));
     }
     paint();
   });
