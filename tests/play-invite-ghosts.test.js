@@ -99,7 +99,7 @@ test('Botão de controle no campo de mensagem, convite simples e notificação e
  assert.match(app,/\/api\/play\/invites/);
  assert.match(server,/function expireNeon/);
  assert.match(server,/neonTick\(game\)/);
- assert.match(server,/kind:\['game','maze'\].includes\(msg.type\)\?'game-invite'/);
+ assert.match(server,/kind:\['game','maze','bomb'\].includes\(msg.type\)\?'game-invite'/);
  assert.match(sw,/payload.kind==='game-invite'/);
  assert.match(sw,/requireInteraction:isTalk\|\|isCall\|\|isContactRequest\|\|isGameInvite/);
  assert.match(sw,/vozchat-shell-v34/);
