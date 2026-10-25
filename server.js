@@ -89,7 +89,7 @@ console.log('VozChat Web Push:',pushEnabled?'configured':'not_configured');
 const webPush = pushEnabled ? (await import('web-push')).default : null;
 if(webPush) webPush.setVapidDetails(process.env.VAPID_SUBJECT || 'https://vozchat-pwa.onrender.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 const pool = POSTGRES_URL ? new (await import('pg')).default.Pool({connectionString:POSTGRES_URL,max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000}) : null;
-let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], largeUploads: [], contactRequests: [], callHistory: [], nextPublicId: '10', pushSubscriptions: [] };
+let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], largeUploads: [], contactRequests: [], callHistory: [], games: [], nextPublicId: '10', pushSubscriptions: [] };
 if(!pool) {
   try {db={...db,...JSON.parse(fs.readFileSync(DATA_FILE,'utf8'))};}
   catch(err){if(err.code!=='ENOENT')throw err;}
@@ -219,7 +219,7 @@ async function notifyMembers(room, sender, msg) {
   if(!recipients.size)return;
   const payload=JSON.stringify({
     title: room.directKey ? sender.name : room.name,
-    body: msg.type==='flowtalk'?'📻 Chamado no FlowTalk':msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':'Nova mensagem',
+    body: msg.type==='flowtalk'?'📻 Chamado no FlowTalk':msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':msg.type==='game'?'🎮 Convite para Jogo da Velha':'Nova mensagem',
     roomId:room.id,
     url:'/app?open='+encodeURIComponent(room.id),
     tag:'vozchat-'+room.id,
@@ -339,6 +339,36 @@ function avatarUrl(u){return u?.avatarId?'/api/avatars/'+u.id:null;}
 function safeUser(u) { return {id:u.id,name:u.name,username:u.username,publicId:u.publicId,avatarUrl:avatarUrl(u)}; }
 function roomView(r,uid) { const last=[...db.messages].reverse().find(m=>m.roomId===r.id); const peer=r.directKey?db.users.find(u=>u.id!==uid&&r.members.includes(u.id)):null; return {id:r.id,name:peer?.name||r.name,peerId:peer?.publicId||null,avatarUrl:avatarUrl(peer),isDirect:!!r.directKey,isOwner:r.owner===uid,createdAt:r.createdAt,members:r.members.length,owner:r.owner,inviteUrl:r.directKey?null:`/app?join=${encodeURIComponent(r.id)}.${r.secret}`,last:last?{type:last.type,text:last.text||'',fileName:last.fileName||'',createdAt:last.createdAt,senderName:last.senderName}:null}; }
 function member(uid,rid) { const r=db.rooms.find(r=>r.id===rid); return r && !r.inactive && r.members.includes(uid) ? r : null; }
+function canPlayInRoom(room){
+  // Nunca habilitar minijogos no ambiente Profissional.
+  return !!(room && !room.inactive && room.directKey && room.members.length===2 &&
+    room.members.every(uid=>{const user=db.users.find(u=>u.id===uid);
+      return user && user.identityType!=='Profissional';}));
+}
+const playLines=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const gameDeadline=24*60*60*1000;
+let playQueue=Promise.resolve();
+function withPlayLock(work){
+  const result=playQueue.then(work);
+  playQueue=result.catch(()=>{});
+  return result;
+}
+function playView(game){
+  return {id:game.id,roomId:game.roomId,status:game.status,board:game.board,
+    turn:game.turn,winner:game.winner||null,inviterId:game.inviterId,
+    players:game.users.map((uid,i)=>{
+      const player=db.users.find(u=>u.id===uid);
+      return {id:uid,name:player?.name||'Jogador',symbol:i===0?'X':'O'};
+    }),createdAt:game.createdAt,updatedAt:game.updatedAt};
+}
+function expirePlayGame(game){
+  if(!['pending','active'].includes(game.status))return false;
+  if(Date.now()-new Date(game.updatedAt).getTime()<gameDeadline)return false;
+  game.status='expired';game.finishedAt=new Date().toISOString();game.updatedAt=game.finishedAt;
+  return true;
+}
+function emitPlayGame(game){push(game.users,'play-update',playView(game));}
+
 function groupMembers(r) {
   return r.members.map(uid=>db.users.find(u=>u.id===uid)).filter(Boolean)
     .map(u=>({name:u.name,publicId:u.publicId,isOwner:r.owner===u.id}));
@@ -467,6 +497,78 @@ async function api(req,res,url) {
   if(method==='POST'&&p==='/api/logout') { const token=cookie(req).vozchat_session; db.sessions=db.sessions.filter(s=>s.hash!==sha(token||'')); await save(); return json(res,200,{ok:true},{'Set-Cookie':sessionCookie(req,'',0)}); }
   if(method==='GET'&&p==='/api/bootstrap') return json(res,200,{user:safeUser(u),identities:identitiesView(u),rooms:db.rooms.filter(r=>!r.inactive&&r.members.includes(u.id)).map(r=>roomView(r,u.id))});
   if(method==='GET'&&p==='/api/identities')return json(res,200,{identities:identitiesView(u)});
+  if(method==='GET'&&/^\/api\/play\/room\/[0-9a-f-]{36}$/i.test(p)){
+    const rid=p.split('/').pop(),room=member(u.id,rid);
+    if(!room)return error(res,403,'Sem acesso a esta conversa.');
+    if(!canPlayInRoom(room))return error(res,403,'VozChat Play está disponível apenas em conversas privadas Pessoal ou Família.');
+    const game=[...(db.games||[])].reverse().find(g=>g.roomId===rid)||null;
+    if(game&&expirePlayGame(game)){await save();emitPlayGame(game);}
+    return json(res,200,{game:game?playView(game):null});
+  }
+  if(method==='POST'&&p==='/api/play/invite'){
+    const input=JSON.parse((await body(req,1024)).toString('utf8'));
+    const rid=String(input.roomId||'');
+    const room=member(u.id,rid);
+    if(!room)return error(res,403,'Sem acesso a esta conversa.');
+    if(!canPlayInRoom(room))return error(res,403,'Jogue apenas em conversa privada Pessoal ou Família.');
+    return withPlayLock(async()=>{
+      db.games ||= [];
+      const latest=[...db.games].reverse().find(g=>g.roomId===rid);
+      if(latest&&expirePlayGame(latest)){await save();emitPlayGame(latest);}
+      if(latest&&['pending','active'].includes(latest.status))
+        return error(res,409,'Já existe uma partida em andamento ou convite pendente nesta conversa.');
+      db.games=db.games.filter(g=>['pending','active'].includes(g.status)||
+        Date.now()-new Date(g.finishedAt||g.updatedAt).getTime()<30*86400000);
+      const opponent=room.members.find(uid=>uid!==u.id);
+      const now=new Date().toISOString();
+      const game={id:id(),roomId:rid,users:[u.id,opponent],inviterId:u.id,
+        status:'pending',board:Array(9).fill(''),turn:'X',winner:null,
+        createdAt:now,updatedAt:now};
+      db.games.push(game);await save();
+      emitPlayGame(game);
+      await sendMsg(room,u,'game',{gameId:game.id,text:'🎮 Convite para Jogo da Velha'});
+      return json(res,201,{game:playView(game)});
+    });
+  }
+  const gameAction=/^\/api\/play\/([0-9a-f-]{36})\/(accept|decline|cancel|move)$/.exec(p);
+  if(method==='POST'&&gameAction){
+    const gameId=gameAction[1],action=gameAction[2];
+    const input=action==='move'?JSON.parse((await body(req,1024)).toString('utf8')):{};
+    return withPlayLock(async()=>{
+      const game=(db.games||[]).find(g=>g.id===gameId);
+      const room=game&&member(u.id,game.roomId);
+      if(!room||!game.users.includes(u.id))
+        return error(res,403,'Partida não disponível para esta identidade.');
+      if(!canPlayInRoom(room))return error(res,403,'Partida indisponível neste ambiente.');
+      if(expirePlayGame(game)){await save();emitPlayGame(game);}
+      if(action==='accept'||action==='decline'){
+        if(game.status!=='pending')return error(res,409,'Este convite não está mais pendente.');
+        if(u.id===game.inviterId)return error(res,403,'Somente o convidado pode responder.');
+        game.status=action==='accept'?'active':'declined';
+      }else if(action==='cancel'){
+        if(game.status!=='pending')return error(res,409,'Este convite não está mais pendente.');
+        if(u.id!==game.inviterId)return error(res,403,'Somente quem convidou pode cancelar.');
+        game.status='canceled';
+      }else{
+        if(game.status!=='active')return error(res,409,'A partida ainda não está ativa ou já terminou.');
+        const symbol=game.users.indexOf(u.id)===0?'X':'O';
+        if(game.turn!==symbol)return error(res,409,'Aguarde sua vez.');
+        if(!Number.isInteger(input.position)||input.position<0||input.position>8)
+          return error(res,400,'Selecione uma casa válida.');
+        if(game.board[input.position])return error(res,409,'Essa casa já foi marcada.');
+        game.board[input.position]=symbol;
+        if(playLines.some(line=>line.every(index=>game.board[index]===symbol))){
+          game.status='won';game.winner=u.id;
+        }else if(game.board.every(Boolean)){
+          game.status='draw';
+        }else game.turn=symbol==='X'?'O':'X';
+      }
+      game.updatedAt=new Date().toISOString();
+      if(!['pending','active'].includes(game.status))game.finishedAt=game.updatedAt;
+      await save();emitPlayGame(game);
+      return json(res,200,{game:playView(game)});
+    });
+  }
   if(method==='POST'&&p==='/api/identities'){
     const input=JSON.parse((await body(req,2048)).toString('utf8'));
     const label=String(input.label||'');
