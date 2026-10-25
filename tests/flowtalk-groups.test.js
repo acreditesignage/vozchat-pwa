@@ -174,7 +174,9 @@ test('FlowTalk e gestão de grupos: administrador, revogação, saída e exclus�
   try{radioB.ws.close();}catch{}
   const direct=await req('POST','/api/contacts/add',{publicId:b.data.user.publicId},a.cookie);
   assert.equal(direct.status,201);
-  const deniedDirectGroup=await req('DELETE','/api/rooms/'+direct.data.room.id,undefined,a.cookie);
+  const acceptance=await req('POST','/api/contacts/requests/'+direct.data.request.id+'/accept',{},b.cookie);
+  assert.equal(acceptance.status,200);
+  const deniedDirectGroup=await req('DELETE','/api/rooms/'+acceptance.data.room.id,undefined,a.cookie);
   assert.equal(deniedDirectGroup.status,404);
   const html=(await fetch(base+'/app')).status;assert.equal(html,200);
   const appJs=await (await fetch(base+'/app.js')).text();
