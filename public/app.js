@@ -22,11 +22,7 @@ let toastTimer;
 function toast(msg) {const el=$('#toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3700);}
 async function api(url,{method='GET',data,headers={}}={}) {let opt={method,credentials:'same-origin',headers};if(data!==undefined){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(data);}let response;try{response=await fetch(url,opt);}catch{throw new Error('Falha na conexão com o servidor.');}let json=await response.json().catch(()=>({}));if(!response.ok)throw new Error(json.error||'Não foi possível concluir.');return json;}
 const neonPlay=window.createNeonPlay({api,toast,getMe:()=>me,getRoom:()=>current,
-  onInvitation:()=>{
-    $('#playChooser').hidden=true;
-    playPanelOpen=false;renderPlayPanel();
-    soundAlert();vibrateAlert();toast('🎮 Seu contato convidou você para o Labirinto Neon!');
-  }
+  onInvitation:()=>{}
 });
 const playHistory=window.createPlayHistory({
   api,toast,getMe:()=>me,getIdentities:()=>identities,getRooms:()=>rooms,getRoom:()=>current,
@@ -34,9 +30,9 @@ const playHistory=window.createPlayHistory({
   openChat:async(roomId,gameKind)=>{
     switchMobileTab('chats');setConversationFilter('all');
     await openRoom(roomId);
-    if(gameKind==='neon-maze')$('#chooseNeonMaze').click();
-    else if(gameKind==='tic-tac-toe')$('#chooseTicTacToe').click();
-    else if(gameKind&&$('#playChooser').hidden)$('#playButton').click();
+    if(gameKind==='neon-maze')await sendQuickPlayInvite('neon');
+    else if(gameKind==='tic-tac-toe')await sendQuickPlayInvite('tic');
+    else if(gameKind)openComposerPlayMenu(true);
   }
 });
 function showAuth() {window.VozChatRingtone?.stop();playHistory.reset();neonPlay.reset();me=null;identities=[];rooms=[];current=null;knownIncomingRequestIds=null;$('#auth').hidden=false;$('#app').hidden=true;$('#app').classList.remove('chat-open');if(events){events.close();events=null;}}
@@ -71,7 +67,9 @@ async function start() {let data;try {data=await api('/api/bootstrap');}catch{sh
     history.replaceState({},'', '/app');
     openContactDialog(addContactParam);
   }
-  if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
+  if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}
+  void checkPendingPlayInvites();
+}
 function paintAvatar(element,name,url){
   element.replaceChildren();
   element.textContent=avatar(name);
@@ -452,6 +450,10 @@ function connectEvents(){
     const next=JSON.parse(event.data);upsertRoom(next);
     if($('#groupManageDialog').open&&managedGroup===next.id)void refreshGroupMembers();
   });
+  events.addEventListener('play-invite',event=>{
+    const invitation=JSON.parse(event.data);
+    showIncomingPlayInvite(invitation);
+  });
   events.addEventListener('neon-update',event=>{
     const updated=JSON.parse(event.data);
     neonPlay.receive(updated);
@@ -464,8 +466,9 @@ function connectEvents(){
       (!playGame||playGame.id!==game.id||playGame.status!=='pending');
     playGame=game;playRoomId=game.roomId;
     if(game.status!=='active')void playHistory.refresh();
-    if(isInvitation){neonPlay.close();$('#playChooser').hidden=true;playPanelOpen=true;
-      soundAlert();vibrateAlert();toast('🎮 Você recebeu um convite para jogar!');}
+    if(isInvitation){
+      $('#playChooser').hidden=true;
+    }
     renderPlayPanel();
   });
   events.addEventListener('talk-incoming',event=>{
@@ -524,10 +527,12 @@ function connectEvents(){
   });
   events.onerror=()=>{if(!navigator.onLine)$('#offline').hidden=false;};
 }
-async function openRoom(roomId){if(current!==roomId){neonPlay.reset();$('#playChooser').hidden=true;stopLiveRadio();playGame=null;playRoomId=roomId;playPanelOpen=false;$('#playPanel').hidden=true;}current=roomId;playHistory.roomOpened(roomId);$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();void refreshPlayGame(roomId);}catch(err){toast(err.message);} }
+async function openRoom(roomId){if(current!==roomId){openComposerPlayMenu(false);neonPlay.reset();$('#playChooser').hidden=true;stopLiveRadio();playGame=null;playRoomId=roomId;playPanelOpen=false;$('#playPanel').hidden=true;}current=roomId;playHistory.roomOpened(roomId);$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();void refreshPlayGame(roomId);}catch(err){toast(err.message);} }
 function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;paintAvatar($('#headerAvatar'),r.name,r.avatarUrl);$('#removeContactButton').hidden=!r.isDirect;
   const playAllowed=!!r.isDirect&&!identities.some(p=>p.id===me?.id&&p.label==='Profissional');
   $('#playButton').hidden=!playAllowed;
+  $('#composerPlayButton').hidden=!playAllowed;
+  if(!playAllowed)openComposerPlayMenu(false);
   playHistory.syncChat(r);
   if(!playAllowed){neonPlay.close();$('#playChooser').hidden=true;playPanelOpen=false;$('#playPanel').hidden=true;}
 }
@@ -623,6 +628,95 @@ async function performPlayAction(action,position,button){
   }catch(err){toast(err.message);}
   finally{playBusy=false;renderPlayPanel();}
 }
+let incomingPlay=null;
+let lastPlayAlert='';
+function showIncomingPlayInvite(invitation){
+  if(!me||!invitation||!['tic','neon'].includes(invitation.kind)||!rooms.some(r=>r.id===invitation.roomId&&r.isDirect))return;
+  if(!/^[0-9a-f-]{36}$/i.test(invitation.id||''))return;
+  const key=invitation.id;
+  if(lastPlayAlert===key&&$('#incomingPlayDialog').open)return;
+  if($('#incomingPlayDialog').open&&incomingPlay?.id!==key)return;
+  incomingPlay=invitation;lastPlayAlert=key;
+  const gameName=invitation.kind==='neon'?'Labirinto Neon':'Jogo da Velha';
+  $('#incomingPlayTitle').textContent='🎮 Chamando para jogar!';
+  $('#incomingPlayDescription').textContent=(invitation.inviterName||'Seu contato')+
+    ' convidou você para '+gameName+'. Quer começar a partida agora?';
+  if(!$('#incomingPlayDialog').open){
+    $('#incomingPlayDialog').showModal();
+    soundAlert();vibrateAlert();
+  }
+}
+async function checkPendingPlayInvites(){
+  if(!me)return;
+  try{
+    const response=await api('/api/play/invites');
+    const pending=response.invitations||[];
+    const focusRoom=typeof openParam==='string'?openParam:'';
+    const chosen=pending.find(g=>g.roomId===focusRoom)||pending[0];
+    if(chosen)showIncomingPlayInvite(chosen);
+  }catch(err){console.warn('Convites pendentes indisponíveis:',err.message);}
+}
+async function replyToPlayInvitation(accept){
+  const invitation=incomingPlay;
+  if(!invitation)return;
+  const buttons=[$('#incomingPlayAccept'),$('#incomingPlayDecline')];
+  buttons.forEach(btn=>btn.disabled=true);
+  try{
+    const endpoint=invitation.kind==='neon'?'/api/play/neon/':'/api/play/';
+    await api(endpoint+invitation.id+(accept?'/accept':'/decline'),{method:'POST',data:{}});
+    incomingPlay=null;$('#incomingPlayDialog').close();
+    if(accept){
+      switchMobileTab('chats');setConversationFilter('all');
+      await openRoom(invitation.roomId);
+      $('#playChooser').hidden=true;
+      if(invitation.kind==='neon'){playPanelOpen=false;renderPlayPanel();await neonPlay.open(invitation.roomId);}
+      else {neonPlay.close();playPanelOpen=true;await refreshPlayGame(invitation.roomId,true);}
+      toast('🎮 Partida iniciada! Divirtam-se.');
+    }else toast('Convite recusado.');
+  }catch(err){toast(err.message||'Não foi possível responder.');void checkPendingPlayInvites();}
+  finally{buttons.forEach(btn=>btn.disabled=false);}
+}
+$('#incomingPlayAccept').addEventListener('click',()=>void replyToPlayInvitation(true));
+$('#incomingPlayDecline').addEventListener('click',()=>void replyToPlayInvitation(false));
+$('#incomingPlayLater').addEventListener('click',()=>$('#incomingPlayDialog').close());
+let quickPlayBusy=false;
+function openComposerPlayMenu(force){
+  const menu=$('#composerPlayMenu');
+  const open=typeof force==='boolean'?force:menu.hidden;
+  const room=rooms.find(r=>r.id===current);
+  menu.hidden=!(open&&room?.isDirect&&me&&!identities.some(i=>i.id===me.id&&i.label==='Profissional'));
+  $('#composerPlayButton').setAttribute('aria-expanded',String(!menu.hidden));
+}
+async function sendQuickPlayInvite(kind){
+  if(quickPlayBusy||!current||!['neon','tic'].includes(kind))return;
+  const room=rooms.find(r=>r.id===current);
+  if(!room?.isDirect)return toast('Escolha um contato aprovado para jogar.');
+  const roomId=current;quickPlayBusy=true;
+  for(const button of $('#composerPlayMenu').querySelectorAll('button'))button.disabled=true;
+  try{
+    const endpoint=kind==='neon'?'/api/play/neon/invite':'/api/play/invite';
+    await api(endpoint,{method:'POST',data:{roomId}});
+    openComposerPlayMenu(false);
+    if(current!==roomId)return;
+    $('#playChooser').hidden=true;
+    if(kind==='neon'){playPanelOpen=false;renderPlayPanel();await neonPlay.open(roomId);}
+    else {neonPlay.close();playPanelOpen=true;await refreshPlayGame(roomId,true);}
+    toast('🎮 Convite enviado! O contato receberá uma chamada para jogar.');
+  }catch(err){
+    if(/convite pendente|partida em andamento|em andamento ou convite/i.test(err.message)){
+      openComposerPlayMenu(false);
+      if(kind==='neon')await neonPlay.open(roomId);
+      else {playPanelOpen=true;await refreshPlayGame(roomId,true);}
+      toast('Há uma partida ou convite pendente. Abra o jogo para continuar.');
+    }else toast(err.message);
+  }finally{
+    quickPlayBusy=false;
+    for(const button of $('#composerPlayMenu').querySelectorAll('button'))button.disabled=false;
+  }
+}
+$('#composerPlayButton').addEventListener('click',()=>openComposerPlayMenu());
+$('#composerInviteNeon').addEventListener('click',()=>void sendQuickPlayInvite('neon'));
+$('#composerInviteTic').addEventListener('click',()=>void sendQuickPlayInvite('tic'));
 $('#playButton').addEventListener('click',()=>{
   if(!$('#playChooser').hidden){
     $('#playChooser').hidden=true;return;
@@ -694,6 +788,7 @@ function scrollDown() {const list=$('#messages');requestAnimationFrame(()=>{list
 function openDialog(id){document.getElementById(id).showModal();}
 
 function resetActiveChat(){
+  openComposerPlayMenu(false);
   current=null;messages=[];playGame=null;playRoomId=null;playPanelOpen=false;
   playHistory.syncChat(null);playHistory.sync();neonPlay.reset();$('#playChooser').hidden=true;$('#playPanel').hidden=true;
   $('#app').classList.remove('chat-open');
