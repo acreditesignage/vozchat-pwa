@@ -1,4 +1,4 @@
-const VERSION='vozchat-shell-v27';
+const VERSION='vozchat-shell-v28';
 const ASSETS=['/app','/theme.js','/premium.css','/call-ringtone.js','/talk','/install-guide.css','/install-guide.js','/styles.css','/app.js','/talk.js','/talk.css','/talk.webmanifest','/icons/flowtalk.svg','/talk-worklet.js','/livekit.bundle.js','/call.bundle.js','/icons/icon.svg','/icons/icon-maskable.svg','/icons/icon-192.png','/icons/icon-512.png','/manifest.webmanifest'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(VERSION).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==VERSION).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});

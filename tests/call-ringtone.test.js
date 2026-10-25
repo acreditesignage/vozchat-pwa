@@ -94,7 +94,7 @@ test('SSE call-ended, recusa, aceite e pagehide têm parada do toque; mensagens 
   assert.match(app,/function incomingAlert\(msg\)/);
   assert.match(app,/events\.addEventListener\('call-incoming'[\s\S]{0,380}presentCall\(incoming,true\)/);
   assert.match(html,/src="\/call-ringtone.js"/);
-  assert.match(sw,/vozchat-shell-v27/);
+  assert.match(sw,/vozchat-shell-v28/);
   assert.match(sw,/\/call-ringtone.js/);
   assert.doesNotThrow(()=>new Function(app));
 });
