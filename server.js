@@ -304,8 +304,8 @@ async function ensurePublicIds() {
   for(const u of db.users) {
     if(typeof u.publicId==='string' && /^[1-9][0-9]+$/.test(u.publicId) && !taken.has(u.publicId)) {
       taken.add(u.publicId);
-      const n=BigInt(u.publicId)+1n;
-      if(n>next)next=n;
+      // IDs aleatórios de identidades secundárias não alteram a sequência principal.
+      if(!u.ownerId){const n=BigInt(u.publicId)+1n;if(n>next)next=n;}
     } else if(u.publicId!==undefined) {delete u.publicId;changed=true;}
   }
   if(typeof db.nextPublicId==='string' && /^[1-9][0-9]+$/.test(db.nextPublicId)) {
@@ -325,6 +325,15 @@ function allocatePublicId(){
   while(db.users.some(u=>u.publicId===String(n) || u.username==='u'+String(n)))n++;
   db.nextPublicId=String(n+1n);
   return String(n);
+}
+function allocateIsolatedPublicId(){
+  for(let attempt=0;attempt<30;attempt++){
+    // Números de 9 dígitos, aleatórios, sem associação visível ao ID da conta principal.
+    const candidate=String(crypto.randomInt(100000000,1000000000));
+    if(!db.users.some(u=>u.publicId===candidate||u.username==='u'+candidate))
+      return candidate;
+  }
+  throw new Error('Não foi possível reservar um ID exclusivo. Tente novamente.');
 }
 function avatarUrl(u){return u?.avatarId?'/api/avatars/'+u.id:null;}
 function safeUser(u) { return {id:u.id,name:u.name,username:u.username,publicId:u.publicId,avatarUrl:avatarUrl(u)}; }
@@ -467,7 +476,7 @@ async function api(req,res,url) {
       return error(res,409,'Esse perfil já existe. Abra-o na lista.');
     const name=String(input.name||'').trim();
     if(name.length<2||name.length>48)return error(res,400,'Digite um apelido de 2 a 48 caracteres para o perfil.');
-    const publicId=allocatePublicId();
+    const publicId=allocateIsolatedPublicId();
     const profile={id:id(),ownerId:root.id,identityType:label,name,username:'u'+publicId,
       publicId,password:null,createdAt:new Date().toISOString()};
     db.users.push(profile);await save();

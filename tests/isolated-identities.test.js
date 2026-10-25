@@ -6,7 +6,6 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 
-const port=()=>new Promise(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>s.close(()=>resolve(s.address()?.port)));});
 // Port is captured BEFORE closing socket to remain portable.
 async function freePort(){return await new Promise(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});}
 test('perfis Pessoal Profissional Família isolam IDs contatos grupos e acesso',async t=>{
@@ -38,13 +37,15 @@ test('perfis Pessoal Profissional Família isolam IDs contatos grupos e acesso',
   assert.equal(state.data.identities[0].publicId,'10');
   const createPro=await request('POST','/api/identities',{label:'Profissional',name:'Alice Trabalho'},ca);
   assert.equal(createPro.status,201);
-  const pro=createPro.data.profile;assert.equal(pro.label,'Profissional');assert.equal(pro.publicId,'12');
+  const pro=createPro.data.profile;assert.equal(pro.label,'Profissional');assert.match(pro.publicId,/^[1-9][0-9]{8}$/);
+  assert.notEqual(pro.publicId,'12');
   assert.notEqual(pro.id,alice.data.user.id);
   const duplicate=await request('POST','/api/identities',{label:'Profissional',name:'Outra'},ca);
   assert.equal(duplicate.status,409);
   const createFam=await request('POST','/api/identities',{label:'Família',name:'Al Fam'},ca);
   assert.equal(createFam.status,201);
-  const family=createFam.data.profile;assert.equal(family.publicId,'13');
+  const family=createFam.data.profile;assert.match(family.publicId,/^[1-9][0-9]{8}$/);
+  assert.notEqual(pro.publicId,family.publicId);
   const invalid=await request('POST','/api/identities',{label:'Publico',name:'Outra'},ca);
   assert.equal(invalid.status,400);
   const foreignList=await request('GET','/api/identities',null,cb);
@@ -92,6 +93,9 @@ test('perfis Pessoal Profissional Família isolam IDs contatos grupos e acesso',
   const renamed=await request('PATCH','/api/identities/'+family.id,{name:'Minha Família'},ca);
   assert.equal(renamed.status,200);
   assert.equal(renamed.data.profile.name,'Minha Família');
+  const nextRoot=await request('POST','/api/register',{name:'Carla',password:'CarlaPassword234'});
+  assert.equal(nextRoot.status,201);
+  assert.equal(nextRoot.data.user.publicId,'12','IDs alternativos não devem consumir ID simples');
   const loginRoot=await request('POST','/api/login',{username:'10',password:'AlicePassword234'});
   assert.equal(loginRoot.status,200);
   assert.equal(loginRoot.data.user.publicId,'10');
