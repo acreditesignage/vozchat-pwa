@@ -23,6 +23,14 @@ test('foto de perfil privada, solicitação de contato, recusa e exclusão segur
     await new Promise(resolve=>setTimeout(resolve,50));
   }
   assert.ok(ready,'Servidor iniciado');
+  // iOS usa blob: para pré-visualizar fotos ao converter HEIC/JPEG para o avatar.
+  const shell=await fetch(base+'/app');
+  assert.equal(shell.status,200);
+  assert.match(shell.headers.get('content-security-policy')||'',/img-src 'self' data: blob:/);
+  assert.equal(shell.headers.get('cache-control'),'no-cache');
+  const jsResponse=await fetch(base+'/app.js');
+  assert.equal(jsResponse.status,200);
+  assert.equal(jsResponse.headers.get('cache-control'),'no-cache');
   async function req(method,url,data,cookie,headers={}){
     const binary=data instanceof Uint8Array||Buffer.isBuffer(data);
     const res=await fetch(base+url,{method,
@@ -127,5 +135,10 @@ test('iPhone instalado: seletor nativo de fotos recebe toque direto e mostra err
   assert.match(app,/status\.textContent='Salvando foto no seu perfil/);
   assert.match(app,/\?v='\+Date\.now\(\)/);
   assert.match(app,/input\.disabled=false/);
+  assert.match(app,/await fetch\(me\.avatarUrl,\{method:'GET',credentials:'same-origin',cache:'no-store'\}\)/);
+  assert.match(app,/if\(!readback\.ok\)throw new Error/);
+  assert.match(app,/if\(!saved\.size\)throw new Error/);
+  assert.match(app,/Foto salva e confirmada no servidor/);
+  assert.match(app,/if\(!element\.firstChild\)element\.textContent=avatar\(name\)/);
   assert.doesNotThrow(()=>new Function(app));
 });

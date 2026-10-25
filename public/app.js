@@ -19,12 +19,22 @@ $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
 $('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#authSubmit');btn.disabled=true;try {const creating=isRegister;const result=await api(creating?'/api/register':'/api/login',{method:'POST',data:creating?{name:$('#realName').value,password:$('#password').value}:{username:$('#username').value,password:$('#password').value}});$('#password').value='';await start();if(creating&&result.user?.publicId){$('#welcomePublicId').textContent=result.user.publicId;openDialog('welcomeDialog');}}catch(err){toast(err.message);}finally{btn.disabled=false;}});
 async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
 function paintAvatar(element,name,url){
-  element.replaceChildren();element.textContent=avatar(name);
+  element.replaceChildren();
+  element.textContent=avatar(name);
   if(!url)return;
   const img=document.createElement('img');
-  img.src=url;img.alt='';img.loading='lazy';img.decoding='async';img.className='avatar-image';
-  img.addEventListener('error',()=>img.remove(),{once:true});
+  img.alt='';img.loading='eager';img.decoding='async';img.className='avatar-image';
+  img.addEventListener('error',()=>{
+    img.remove();
+    // Nunca deixar o espaço da foto vazio se a rede ou a imagem falhar.
+    if(!element.firstChild)element.textContent=avatar(name);
+    if(element.id==='profilePreview'){
+      const status=$('#profilePhotoStatus');
+      if(status)status.textContent='A foto foi salva, mas não pôde ser exibida. Feche e reabra o perfil.';
+    }
+  },{once:true});
   element.replaceChildren(img);
+  img.src=url;
 }
 function upsertRoom(r) {let idx=rooms.findIndex(x=>x.id===r.id);if(idx<0)rooms.push(r);else rooms[idx]={...rooms[idx],...r};sortRooms();renderRooms();if(current===r.id)renderHeader();}
 function renderRooms(){const list=$('#roomList');list.replaceChildren();const term=$('#search').value.trim().toLowerCase();const filtered=rooms.filter(x=>x.name.toLowerCase().includes(term)||String(x.peerId||'').includes(term));if(!filtered.length){const el=document.createElement('p');el.className='list-empty';el.textContent=term?'Nenhuma conversa encontrada.':'Nenhuma conversa ainda. Toque em + para criar a primeira.';list.append(el);return;}for(const room of filtered){const btn=document.createElement('button');btn.type='button';btn.className='room-item'+(room.id===current?' active':'');const ic=document.createElement('div');ic.className='room-icon';paintAvatar(ic,room.name,room.avatarUrl);const info=document.createElement('div');info.className='room-info';const top=document.createElement('div');top.className='room-name';const title=document.createElement('strong');title.textContent=room.name;const small=document.createElement('small');small.textContent=room.last?time(room.last.createdAt):'';top.append(title,small);const preview=document.createElement('div');preview.className='room-preview';preview.textContent=room.last?`${room.last.senderName}: ${room.last.type==='flowtalk'?'📻 FlowTalk':room.last.type==='audio'?'🎤 Mensagem de voz':({image:'📷 Foto',video:'🎬 Vídeo',file:'📎 Arquivo'}[room.last.type]||room.last.text)}`:'Conversa criada · toque para abrir';info.append(top,preview);btn.append(ic,info);btn.addEventListener('click',()=>openRoom(room.id));list.append(btn);}}
@@ -1218,13 +1228,22 @@ $('#profilePhotoInput').addEventListener('change',async event=>{
     const result=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(result.error||'Erro ao salvar a foto no servidor.');
     me=result.user;
-    // Evitar imagem antiga após o upload no cache de webapps instalados.
-    if(me.avatarUrl)me.avatarUrl+='?v='+Date.now();
+    if(!me.avatarUrl)throw new Error('O servidor não retornou o endereço da foto.');
+    // Confirma que a foto existe no armazenamento privado e pode ser lida pela sessão.
+    // Assim não informamos sucesso quando o PostgreSQL salvou apenas os metadados.
+    const readback=await fetch(me.avatarUrl,{method:'GET',credentials:'same-origin',cache:'no-store'});
+    if(!readback.ok)throw new Error('Foto recebida pelo servidor, mas leitura falhou (HTTP '+readback.status+').');
+    if(!(readback.headers.get('content-type')||'').startsWith('image/'))
+      throw new Error('O servidor não retornou uma imagem válida.');
+    const saved=await readback.blob();
+    if(!saved.size)throw new Error('A imagem salva chegou vazia.');
+    // URL atualizada força renderização com a foto mais recente no app instalado.
+    me.avatarUrl += '?v='+Date.now();
     paintAvatar($('#meAvatar'),me.name,me.avatarUrl);
     paintAvatar($('#profilePreview'),me.name,me.avatarUrl);
     $('#removeProfilePhoto').hidden=false;
-    status.textContent='Foto atualizada com sucesso!';
-    toast('Sua foto foi salva!');
+    status.textContent='Foto salva e confirmada no servidor!';
+    toast('Foto salva e confirmada!');
   }catch(err){
     const message=err?.message||'Erro ao carregar foto. Tente novamente.';
     status.textContent=message;
