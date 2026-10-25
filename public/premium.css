@@ -192,6 +192,38 @@ html[data-theme="dark"] .flowtalk-hold{color:#fff}
 @media(min-width:631px){.sidebar .sidebar-foot{margin-top:auto}.room-list{flex:1}}
 
 
+/* Identidades isoladas: nome e avatar nunca se misturam entre ambientes. */
+.identity-switch-control{display:flex;align-items:center;justify-content:center;gap:9px;
+  margin:9px 19px 2px;padding:9px 13px;min-height:39px;
+  border-radius:12px;border:1px solid var(--ui-edge);background:var(--ui-soft);
+  font-size:12px;font-weight:800;color:var(--ui-accent);cursor:pointer}
+.identity-switch-control:hover{border-color:var(--ui-accent)}
+.identity-switch-control span:last-child{font-size:13px;color:var(--ui-muted)}
+.identity-list{display:flex;flex-direction:column;gap:8px;margin:15px 0}
+.identity-row{display:flex;align-items:center;gap:10px;min-height:64px;padding:9px;
+  border:1px solid var(--ui-edge);background:var(--ui-soft);border-radius:14px}
+.identity-row.is-active{border-color:var(--ui-accent)}
+.identity-avatar{flex:none;display:flex;align-items:center;justify-content:center;overflow:hidden;
+  border-radius:50%;background:var(--ui-card);width:42px;height:42px;
+  color:var(--ui-accent);font-size:21px;font-weight:800}
+.identity-avatar img{width:100%;height:100%;object-fit:cover}
+.identity-row-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.identity-row-info strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.identity-row-info small{font-size:11px;color:var(--ui-muted)}
+.identity-actions{display:flex;gap:6px;align-items:center}
+.identity-edit,.identity-enter{border:1px solid var(--ui-edge);border-radius:9px;
+  background:var(--ui-card);color:var(--ui-text);font-size:11px;font-weight:800;min-height:34px;padding:8px}
+.identity-enter{background:var(--ui-accent);color:white;border-color:transparent}
+.identity-current{font-size:10px;font-weight:800;color:var(--ui-accent)}
+.identity-create-form{display:flex;flex-direction:column;gap:12px;padding-top:13px;border-top:1px solid var(--ui-edge)}
+.identity-create-form[hidden]{display:none}
+.identity-create-form strong{font-size:13px}
+.identity-create-form select{width:100%;padding:12px;border:1px solid var(--ui-edge);
+  border-radius:12px;background:var(--ui-card);color:var(--ui-text);font:inherit}
+@media(max-width:630px){.identity-switch-control{margin:7px 16px 0;min-height:35px}
+.identity-row{gap:7px;padding:8px 6px}.identity-avatar{width:36px;height:36px}
+.identity-actions{gap:4px}.identity-edit,.identity-enter{padding:7px;min-height:31px}}
+
 /* Convites intencionais pelo WhatsApp: o usuário decide quem recebe o seu ID. */
 .whatsapp-invite-link{display:flex;align-items:center;justify-content:center;gap:7px;
   min-height:43px;margin:9px 0;padding:10px 13px;border-radius:13px;

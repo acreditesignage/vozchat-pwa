@@ -1,9 +1,10 @@
 const $ = q => document.querySelector(q);
-let me=null, rooms=[], current=null, messages=[], events=null, isRegister=false, recorder=null, pieces=[], recordingStart=0, recordingTicker=null, recordedCanceled=false, deferredInstall=null, pendingFiles=[],pendingRoom=null,previewUrl=null,uploading=false;
+let me=null, identities=[], rooms=[], current=null, messages=[], events=null, isRegister=false, recorder=null, pieces=[], recordingStart=0, recordingTicker=null, recordedCanceled=false, deferredInstall=null, pendingFiles=[],pendingRoom=null,previewUrl=null,uploading=false;
 const joinParam = new URLSearchParams(location.search).get('join');
 const openParam = new URLSearchParams(location.search).get('open');
 const talkParam = new URLSearchParams(location.search).get('talk');
 const callParam = new URLSearchParams(location.search).get('call');
+const identityParam = new URLSearchParams(location.search).get('identity');
 const addContactParam = new URLSearchParams(location.search).get('add');
 const validAddContactParam=/^[1-9][0-9]{1,79}$/.test(addContactParam||'');
 let deferContactInviteUntilWelcome=false;
@@ -19,7 +20,7 @@ const day = iso => new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month
 let toastTimer;
 function toast(msg) {const el=$('#toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3700);}
 async function api(url,{method='GET',data,headers={}}={}) {let opt={method,credentials:'same-origin',headers};if(data!==undefined){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(data);}let response;try{response=await fetch(url,opt);}catch{throw new Error('Falha na conexão com o servidor.');}let json=await response.json().catch(()=>({}));if(!response.ok)throw new Error(json.error||'Não foi possível concluir.');return json;}
-function showAuth() {window.VozChatRingtone?.stop();me=null;rooms=[];current=null;knownIncomingRequestIds=null;$('#auth').hidden=false;$('#app').hidden=true;$('#app').classList.remove('chat-open');if(events){events.close();events=null;}}
+function showAuth() {window.VozChatRingtone?.stop();me=null;identities=[];rooms=[];current=null;knownIncomingRequestIds=null;$('#auth').hidden=false;$('#app').hidden=true;$('#app').classList.remove('chat-open');if(events){events.close();events=null;}}
 function sortRooms() {rooms.sort((a,b)=>new Date(b.last?.createdAt||b.createdAt)-new Date(a.last?.createdAt||a.createdAt));}
 function authMode(register) {isRegister=register;$('#nameField').hidden=!register;$('#realName').required=register;$('#usernameField').hidden=register;$('#username').required=!register;$('#authDescription').textContent=register?'Escolha como quer ser chamado. Seu ID exclusivo será criado automaticamente.':'Entre com seu ID numérico (ou usuário antigo) e sua senha.';$('#authTitle').textContent=register?'Crie sua conta':'Entre na sua conta';$('#authSubmit').innerHTML=register?'Criar conta <span>→</span>':'Entrar <span>→</span>';$('#authSwitchLabel').firstChild.textContent=register?'Já possui uma conta? ':'Ainda não tem conta? ';$('#authSwitch').textContent=register?'Entrar':'Criar conta';$('#password').autocomplete=register?'new-password':'current-password';}
 $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
@@ -31,7 +32,18 @@ $('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=
       },{once:true});
     }
   }}catch(err){toast(err.message);}finally{deferContactInviteUntilWelcome=false;btn.disabled=false;}});
-async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();loadFavoriteRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);updateWhatsAppInvites();renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();
+async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;identities=data.identities||[];
+  if(identityParam && identityParam!==me.id){
+    try {
+      const previousId=me.id;
+      await api('/api/identities/'+encodeURIComponent(identityParam)+'/activate',{method:'POST',data:{}});
+      if(localStorage.getItem('vozchat_push_uid')===previousId)
+        localStorage.setItem('vozchat_push_uid',identityParam);
+      const to=new URL(location.href);to.searchParams.delete('identity');
+      location.replace(to.pathname+to.search+to.hash);return;
+    }catch(e){toast('O perfil do link não pertence a esta conta.');}
+  }
+  sortRooms();loadFavoriteRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;renderIdentities();$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);updateWhatsAppInvites();renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();
   if(requestsParam==='1'){
     history.replaceState({},'', '/app');
     $('#pendingContactsButton').click();
@@ -1563,6 +1575,96 @@ $('#removeProfilePhoto').addEventListener('click',async()=>{
   }finally{button.disabled=false;}
 });
 
+// Cada identidade possui um UUID interno e ID público exclusivos. Não publicar
+// ownerId nos dados destinados a outros usuários ou no link de convite.
+function renderIdentities(){
+  const active=identities.find(p=>p.active)||identities.find(p=>p.id===me?.id);
+  $('#identityActiveLabel').textContent=active?.label||'Pessoal';
+  const list=$('#identityList');list.replaceChildren();
+  for(const profile of identities){
+    const row=document.createElement('div');row.className='identity-row'+(profile.active?' is-active':'');
+    const badge=document.createElement('div');badge.className='identity-avatar';
+    const icon=profile.label==='Família'?'⌂':profile.label==='Profissional'?'▣':'◈';
+    badge.textContent=icon;
+    if(profile.avatarUrl){
+      const photo=document.createElement('img');photo.src=profile.avatarUrl;
+      photo.alt='';photo.className='avatar-image';badge.replaceChildren(photo);
+      photo.onerror=()=>{badge.replaceChildren();badge.textContent=icon;};
+    }
+    const info=document.createElement('div');info.className='identity-row-info';
+    const label=document.createElement('strong');label.textContent=profile.label+' · '+profile.name;
+    const idLine=document.createElement('small');idLine.textContent='ID '+profile.publicId;
+    info.append(label,idLine);
+    const actions=document.createElement('div');actions.className='identity-actions';
+    const edit=document.createElement('button');edit.type='button';edit.className='identity-edit';
+    edit.textContent='Editar';edit.title='Editar apelido deste perfil';
+    edit.addEventListener('click',async()=>{
+      const entered=prompt('Apelido de '+profile.label+' (2 a 48 caracteres):',profile.name);
+      if(entered===null)return;
+      const name=entered.trim();
+      if(name.length<2||name.length>48)return toast('Use entre 2 e 48 caracteres.');
+      edit.disabled=true;
+      try{
+        const result=await api('/api/identities/'+profile.id,{method:'PATCH',data:{name}});
+        identities=result.identities;
+        if(profile.active){me.name=name;$('#meName').textContent=name;paintAvatar($('#meAvatar'),name,me.avatarUrl);}
+        renderIdentities();toast('Apelido atualizado!');
+      }catch(err){toast(err.message);}finally{edit.disabled=false;}
+    });
+    actions.append(edit);
+    if(profile.active){
+      const tag=document.createElement('span');tag.className='identity-current';tag.textContent='Em uso';
+      actions.append(tag);
+    }else{
+      const enter=document.createElement('button');enter.type='button';enter.className='identity-enter';
+      enter.textContent='Entrar';enter.addEventListener('click',()=>switchIdentity(profile.id,enter));
+      actions.append(enter);
+    }
+    row.append(badge,info,actions);list.append(row);
+  }
+  const remaining=['Profissional','Família'].filter(label=>!identities.some(p=>p.label===label));
+  const form=$('#identityCreateForm');
+  form.hidden=remaining.length===0;
+  $('#identityType').replaceChildren();
+  for(const label of remaining){
+    const option=document.createElement('option');option.value=label;option.textContent=label;
+    $('#identityType').append(option);
+  }
+  $('#identityName').placeholder='Ex.: '+(remaining[0]||'Meu perfil');
+}
+async function switchIdentity(id,button){
+  if(currentCall)return toast('Finalize a chamada antes de trocar de perfil.');
+  if(recordingStart)return toast('Termine a gravação antes de trocar de perfil.');
+  button.disabled=true;
+  try{
+    const previousId=me?.id;
+    await api('/api/identities/'+encodeURIComponent(id)+'/activate',{method:'POST',data:{}});
+    if(localStorage.getItem('vozchat_push_uid')===previousId)
+      localStorage.setItem('vozchat_push_uid',id);
+    localStorage.setItem('vozchat_identity_changed',Date.now()+':'+id);
+    location.assign('/app');
+  }catch(err){toast(err.message);button.disabled=false;}
+}
+window.addEventListener('storage',event=>{
+  if(event.key==='vozchat_identity_changed'&&me)location.replace('/app');
+});
+$('#identityMenuButton').addEventListener('click',()=>{
+  renderIdentities();openDialog('identitiesDialog');
+});
+$('#settingsOpenIdentities').addEventListener('click',()=>{
+  $('#settingsDialog').close();renderIdentities();openDialog('identitiesDialog');
+});
+$('#identityCreateForm').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const button=$('#identityCreate');button.disabled=true;
+  try{
+    const result=await api('/api/identities',{method:'POST',data:{
+      label:$('#identityType').value,name:$('#identityName').value.trim()
+    }});
+    identities=result.identities;$('#identityName').value='';
+    renderIdentities();toast('Identidade criada com ID exclusivo. Toque em Entrar para usar.');
+  }catch(err){toast(err.message);}finally{button.disabled=false;}
+});
 const compactSettingKey='vozchat_compact_rooms';
 function applyCompact(){
   const enabled=localStorage.getItem(compactSettingKey)==='yes';
