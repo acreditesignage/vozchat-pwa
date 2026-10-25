@@ -6,7 +6,7 @@ function createPlaySolo({getProfileId,returnToHub,toast}){
   const ticBoard=$('playSoloTicBoard'),pad=$('playSoloDpad');
   const W=17,H=13,C=27,OX=25,OY=19;
   let kind=null,engine=null,maze=null,tic=Array(9).fill(''),ticEnd=false;
-  let timer=null,cpuTimer=null,holdDirection=null;
+  let timer=null,cpuTimer=null,droneTimer=null,holdDirection=null;
   const directions={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',
     w:'up',a:'left',s:'down',d:'right'};
   const winLines=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
@@ -22,6 +22,17 @@ function createPlaySolo({getProfileId,returnToHub,toast}){
   function stopTimers(){
     stopMovement();if(cpuTimer!==null)clearTimeout(cpuTimer);
     cpuTimer=null;
+    if(droneTimer!==null)clearInterval(droneTimer);
+    droneTimer=null;
+  }
+  function startDrones(){
+    if(droneTimer!==null)clearInterval(droneTimer);
+    if(kind!=='neon'||!maze||maze.status!=='active')return;
+    droneTimer=setInterval(()=>{
+      if(!dialog.open||document.hidden||kind!=='neon'||!maze||maze.status!=='active')return;
+      const result=engine?.neonTick(maze);
+      if(result?.changed){persistMaze();drawMaze();}
+    },900);
   }
   function winner(board){
     for(const line of winLines){
@@ -104,7 +115,7 @@ function createPlaySolo({getProfileId,returnToHub,toast}){
     else status.textContent='Colete as luzes ✦ e evite os drones ◆. Use as setas para se mover.';
     const playing=maze.status==='active';
     for(const b of pad.querySelectorAll('button'))b.disabled=!playing;
-    if(!playing)stopMovement();
+    if(!playing){stopMovement();if(droneTimer!==null){clearInterval(droneTimer);droneTimer=null;}}
   }
   function move(direction){
     if(kind!=='neon'||!dialog.open||!maze||maze.status!=='active'||!engine)return;
@@ -140,7 +151,7 @@ function createPlaySolo({getProfileId,returnToHub,toast}){
     if(!engine)return;
     maze=engine.newNeonGame('local','solo',['solo'],'solo',Date.now());
     maze.players=maze.players.slice(0,1);
-    engine.beginNeonGame(maze);persistMaze();drawMaze();
+    engine.beginNeonGame(maze);persistMaze();drawMaze();startDrones();
   }
   async function open(nextKind){
     if(nextKind!=='neon'&&nextKind!=='tic')return;
@@ -156,7 +167,7 @@ function createPlaySolo({getProfileId,returnToHub,toast}){
       let prior=null;
       try{prior=JSON.parse(localStorage.getItem(storageKey())||'null');}catch{}
       if(prior&&prior.status==='active'&&prior.users?.[0]==='solo'&&prior.board?.length===H){
-        maze=prior;drawMaze();
+        maze=prior;drawMaze();startDrones();
       }else newMaze();
     }catch(err){status.textContent='Não foi possível abrir o labirinto. Atualize o aplicativo.';toast('Erro ao carregar Labirinto Neon.');}
   }
