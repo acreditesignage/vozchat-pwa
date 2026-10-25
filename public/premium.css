@@ -685,3 +685,65 @@ html.vozchat-game-active,html.vozchat-game-active body{
   #playSoloDialog .play-solo-dpad button{height:48px!important}
   #playSoloDialog .play-solo-note{display:none}
 }
+
+
+/* Arena Bomba: arcade original premium, projetado para toque no iPhone. */
+.bomb-panel[hidden]{display:none!important}
+.bomb-panel.game-fullscreen{position:fixed!important;inset:0!important;z-index:6001!important;
+  width:100%!important;height:100dvh!important;max-width:none!important;max-height:100dvh!important;
+  display:flex!important;align-items:center;flex-direction:column;gap:clamp(5px,1dvh,10px);
+  padding:max(10px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right))
+    max(8px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));
+  box-sizing:border-box;background:var(--ui-card);color:var(--ui-text);
+  overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
+.bomb-heading,.bomb-score,.bomb-status,.bomb-actions,.bomb-controls,.bomb-hint{width:min(100%,520px)}
+.bomb-heading{display:flex;align-items:center;gap:10px;min-height:47px;flex:none}
+.bomb-logo{width:41px;height:41px;border-radius:12px;display:grid;place-items:center;
+  background:linear-gradient(135deg,#2946a5,#642672);font-size:24px}
+.bomb-heading-info{display:flex;flex:1;min-width:0;flex-direction:column;gap:3px}
+.bomb-heading-info strong{font-size:17px;color:var(--ui-strong)}
+.bomb-heading-info small{font-size:11px;color:var(--ui-muted)}
+.bomb-heading .play-close{min-width:45px;min-height:45px;font-size:23px}
+.bomb-score{color:var(--ui-accent);font-size:13px;font-weight:800;text-align:center}
+.bomb-status{margin:0!important;font-size:13px!important;color:var(--ui-muted)!important;text-align:center;line-height:1.45!important}
+#bombCanvas{display:block;flex:none;width:min(100%,520px,calc((100dvh - 335px)*13/11))!important;
+  max-width:100%;height:auto!important;aspect-ratio:13/11;border-radius:13px;
+  border:1px solid #335d9c;background:#07182b;touch-action:none;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.bomb-actions{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;min-height:39px;flex:none}
+.bomb-actions button{min-height:40px;border-radius:12px;border:1px solid var(--ui-edge);color:var(--ui-text);
+  padding:9px 17px;background:var(--ui-soft);font-size:12px;font-weight:800}
+.bomb-actions button.bomb-primary{background:var(--ui-accent);color:#fff;border-color:transparent}
+.bomb-controls{display:flex;align-items:center;justify-content:space-around;gap:25px;
+  flex:none;min-height:177px;margin:0 auto;touch-action:none}
+.bomb-dpad{display:grid;grid-template-areas:'. up .' 'left center right' '. down .';
+  grid-template-columns:repeat(3,58px);grid-template-rows:repeat(3,55px);
+  gap:0;touch-action:none;user-select:none;filter:drop-shadow(0 7px 6px #0002)}
+.bomb-dpad button{height:100%;width:100%;border:0;border-radius:0;font-size:19px;font-weight:900;
+  background:#1e4779;color:#c7eaff;touch-action:none;user-select:none;
+  -webkit-tap-highlight-color:transparent;transition:background .1s,transform .08s}
+.bomb-dpad .bomb-up{grid-area:up;border-radius:13px 13px 0 0}
+.bomb-dpad .bomb-left{grid-area:left;border-radius:13px 0 0 13px}
+.bomb-dpad .bomb-right{grid-area:right;border-radius:0 13px 13px 0}
+.bomb-dpad .bomb-down{grid-area:down;border-radius:0 0 13px 13px}
+.bomb-dpad .bomb-center{grid-area:center;background:#1e4779;display:grid;place-items:center}
+.bomb-dpad .bomb-center::after{content:'';width:25px;height:25px;border-radius:50%;
+  background:linear-gradient(135deg,#5278a8,#18385c);box-shadow:inset 1px 2px 3px #8badc6}
+.bomb-dpad button.pressed,.bomb-dpad button:active{background:#3d9def;color:#fff;transform:scale(.97)}
+.bomb-dpad button:disabled{opacity:.4}
+.bomb-drop{width:clamp(94px,27vw,124px);height:clamp(94px,27vw,124px);
+  border:5px solid #ffcf83;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:3px;color:#502542;background:linear-gradient(145deg,#fff5be,#ffa454);
+  box-shadow:0 7px 0 #a85a4a,0 10px 20px #0003;touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent}
+.bomb-drop span{font-size:40px}.bomb-drop small{font-size:13px;letter-spacing:1px;font-weight:950}
+.bomb-drop:active{transform:translateY(4px);box-shadow:0 3px 0 #a85a4a}
+.bomb-drop:disabled{opacity:.38}
+.bomb-hint{margin:0!important;color:var(--ui-muted)!important;text-align:center;font-size:11px!important}
+.play-bomb-art,.play-hub-bomb-art{background:linear-gradient(130deg,#1c345d,#6b305c);color:#fff}
+@media(max-width:630px){.bomb-dpad{grid-template-columns:repeat(3,51px);grid-template-rows:repeat(3,49px)}
+  .bomb-controls{gap:15px;min-height:149px}.bomb-panel.game-fullscreen{gap:5px}
+  #bombCanvas{width:min(100%,calc((100dvh - 309px)*13/11))!important}
+  .bomb-drop{width:90px;height:90px}.bomb-drop span{font-size:35px}}
+@media(max-height:690px){.bomb-hint{display:none}.bomb-controls{min-height:143px}
+  #bombCanvas{width:min(100%,calc((100dvh - 285px)*13/11))!important}}
