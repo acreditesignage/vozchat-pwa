@@ -680,7 +680,8 @@ async function deactivateDirectRoom(room){
     const connected=db.rooms.some(r=>!r.inactive&&r.members.includes(u.id)&&r.members.includes(owner.id));
     const requested=(db.contactRequests||[]).some(r=>
       (r.from===u.id&&r.to===owner.id)||(r.to===u.id&&r.from===owner.id));
-    if(owner.id!==u.id&&!connected&&!requested)return error(res,403,'Foto privada.');
+    if(owner.id!==u.id&&ownerIdFor(owner.id)!==ownerIdFor(u.id)&&!connected&&!requested)
+      return error(res,403,'Foto privada.');
     const data=await readBlob(owner.avatarId,path.join(FILES,'avatar-'+owner.avatarId));
     if(!data)return error(res,404,'Foto indisponível.');
     res.writeHead(200,{'Content-Type':owner.avatarMime||'image/jpeg','Cache-Control':'private,no-store',
@@ -688,7 +689,11 @@ async function deactivateDirectRoom(room){
     res.end(data);return;
   }
   if(method==='POST'&&p==='/api/rooms') { const input=JSON.parse((await body(req)).toString('utf8')); const name=String(input.name||'').trim(); if(name.length<2||name.length>60) return error(res,400,'Nome da conversa deve ter de 2 a 60 caracteres.'); const r={id:id(),secret:rand(24),owner:u.id,name,members:[u.id],createdAt:new Date().toISOString()}; db.rooms.push(r); await save(); const view=roomView(r,u.id); push([u.id],'room',view); return json(res,201,{room:view}); }
-  if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&!r.directKey&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){r.members.push(u.id);await save();for(const uid of r.members)push([uid],'room',roomView(r,uid));} return json(res,200,{room:roomView(r,u.id)}); }
+  if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&!r.directKey&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){
+      if(r.members.some(uid=>ownerIdFor(uid)===ownerIdFor(u.id)))
+        return error(res,409,'Outro perfil da sua conta já participa deste grupo.');
+      r.members.push(u.id);await save();for(const uid of r.members)push([uid],'room',roomView(r,uid));
+    } return json(res,200,{room:roomView(r,u.id)}); }
 
   if(method==='GET'&&p==='/api/calls/history'){
     const history=(db.callHistory||[]).filter(entry=>
