@@ -1,6 +1,6 @@
 // VozChat Play · Acesso permanente + histórico de partidas por perfil.
 // Não guarda jogos no navegador: só recupera o histórico autorizado pelo servidor.
-function createPlayHistory({api,toast,getMe,getIdentities,getRooms,openChat}){
+function createPlayHistory({api,toast,getMe,getIdentities,getRooms,getRoom,openChat}){
   const $=id=>document.getElementById(id);
   const dialog=$('playHistoryDialog');
   const eligible=()=>{const me=getMe();return !!me&&!getIdentities().some(p=>p.id===me.id&&p.label==='Profissional');};
@@ -13,7 +13,7 @@ function createPlayHistory({api,toast,getMe,getIdentities,getRooms,openChat}){
   function sync(){
     const allowed=eligible();
     $('playHubButton').hidden=!allowed;
-    const room=getRooms().find(r=>r.id===getMe()?.currentRoomId)||null;
+    const room=getRooms().find(r=>r.id===getRoom())||null;
     const last=lastRoom();
     $('resumeLastChat').hidden=!last;
     if(last)$('resumeLastChat').textContent='↩ Retomar conversa com '+last.name;
@@ -110,7 +110,7 @@ function createPlayHistory({api,toast,getMe,getIdentities,getRooms,openChat}){
   }
   $('playHubButton').addEventListener('click',()=>void show());
   $('chatPlayHistory').addEventListener('click',()=>void show());
-  $('chatPlayStart').addEventListener('click',()=>{const room=getRooms().find(room=>room.id===getMe()?.currentRoomId);if(room)void openChat(room.id,true);});
+  $('chatPlayStart').addEventListener('click',()=>{const room=getRooms().find(room=>room.id===getRoom());if(room)void openChat(room.id,true);});
   $('resumeLastChat').addEventListener('click',()=>{const room=lastRoom();if(room)void openChat(room.id,false);});
   return {sync,syncChat,roomOpened,refresh,show,
     reset(){dialog.open&&dialog.close();$('playHubButton').hidden=true;$('chatPlayBar').hidden=true;$('resumeLastChat').hidden=true;}};
