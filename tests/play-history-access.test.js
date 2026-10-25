@@ -90,6 +90,16 @@ test('histórico de partidas sobrevive ao fechamento de chat, separa perfis e pr
  assert.ok(archived.data.games.every(item=>item.canReopen===false));
  assert.equal((await request('GET','/api/rooms/'+roomId+'/messages',null,login.cookie)).status,403);
  assert.deepEqual((await request('GET','/api/play/history',null,cc)).data.games,[]);
+ assert.ok(archived.data.games.every(item=>item.otherPublicId===bob.data.user.publicId));
+ // O contato pode ser convidado novamente sem revelar outro perfil nem apagar as mensagens antigas.
+ const reconnect=await request('POST','/api/contacts/add',{publicId:bob.data.user.publicId},login.cookie);
+ assert.equal(reconnect.status,201);
+ const acceptedAgain=await request('POST','/api/contacts/requests/'+reconnect.data.request.id+'/accept',{},cb);
+ assert.equal(acceptedAgain.status,200);
+ assert.equal(acceptedAgain.data.room.id,roomId);
+ const recovered=await request('GET','/api/play/history',null,login.cookie);
+ assert.ok(recovered.data.games.every(item=>item.canReopen));
+ assert.equal((await request('GET','/api/rooms/'+roomId+'/messages',null,login.cookie)).status,200);
 });
 
 test('botão Jogar fixo no mobile, histórico privado e retomar conversa estão conectados',()=>{
@@ -98,10 +108,16 @@ test('botão Jogar fixo no mobile, histórico privado e retomar conversa estão 
  const script=readFileSync(new URL('../public/play-history.js',import.meta.url),'utf8');
  const styles=readFileSync(new URL('../public/premium.css',import.meta.url),'utf8');
  const sw=readFileSync(new URL('../public/sw.js',import.meta.url),'utf8');
+ const solo=readFileSync(new URL('../public/play-solo.js',import.meta.url),'utf8');
  for(const id of ['playHubButton','chatPlayBar','chatPlayStart','chatPlayHistory',
-   'playHistoryDialog','playHistoryList','playHistoryContacts','resumeLastChat'])
+   'playHistoryDialog','playHistoryList','playHistoryContacts','resumeLastChat',
+   'playHubSoloNeon','playHubSoloTic','playHubDuoNeon','playHubDuoTic',
+   'playHubContactsSection','playSoloDialog','playSoloCanvas','playSoloTicBoard',
+   'playSoloRestart','playSoloBack','playHistoryDetails','playHubAddContact'])
    assert.match(html,new RegExp('id="'+id+'"'),'falta elemento '+id);
  assert.match(html,/src="\/play-history\.js"/);
+ assert.match(html,/src="\/play-solo\.js"/);
+ assert.ok(html.indexOf('id="playHubSoloNeon"')<html.indexOf('id="playHistoryDetails"'));
  assert.ok(html.indexOf('src="/play-history.js"')<html.indexOf('src="/app.js"'));
  assert.match(js,/createPlayHistory/);
  assert.match(js,/playHistory\.syncChat\(r\)/);
@@ -110,8 +126,14 @@ test('botão Jogar fixo no mobile, histórico privado e retomar conversa estão 
  assert.match(styles,/\.chat-play-bar/);
  assert.match(script,/\/api\/play\/history/);
  assert.match(script,/vozchat_last_room_/);
+ assert.match(script,/createPlaySolo/);
+ assert.match(script,/openContact\(entry\.otherPublicId\)/);
+ assert.match(solo,/import\('\/neon-maze-engine\.js'\)/);
+ assert.match(solo,/function findBotMove\(/);
+ assert.match(solo,/localStorage\.setItem\(storageKey\(\)/);
  assert.match(sw,/vozchat-shell-v31/);
  assert.match(sw,/\/play-history\.js/);
  assert.doesNotThrow(()=>new Function(js));
  assert.doesNotThrow(()=>new Function(script));
+ assert.doesNotThrow(()=>new Function(solo));
 });
