@@ -7,6 +7,7 @@ function createPlaySolo({getProfileId,returnToHub,toast}){
   const W=17,H=13,C=27,OX=25,OY=19;
   let kind=null,engine=null,maze=null,tic=Array(9).fill(''),ticEnd=false;
   let timer=null,cpuTimer=null,droneTimer=null,holdDirection=null;
+  let swipeOrigin=null;
   const directions={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',
     w:'up',a:'left',s:'down',d:'right'};
   const winLines=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
@@ -18,6 +19,8 @@ function createPlaySolo({getProfileId,returnToHub,toast}){
   function stopMovement(){
     if(timer!==null)clearInterval(timer);
     timer=null;holdDirection=null;
+    for(const control of pad.querySelectorAll('[data-solo-direction]'))
+      control.classList.remove('is-pressed');
   }
   function stopTimers(){
     stopMovement();if(cpuTimer!==null)clearTimeout(cpuTimer);
@@ -123,14 +126,24 @@ function createPlaySolo({getProfileId,returnToHub,toast}){
     if(result.changed){persistMaze();drawMaze();}
   }
   function startHold(direction){
-    if(kind!=='neon'||!maze||maze.status!=='active')return;
-    stopMovement();holdDirection=direction;move(direction);
-    timer=setInterval(()=>{if(holdDirection)move(holdDirection);},180);
+    if(kind!=='neon'||!maze||maze.status!=='active'||!dialog.open)return;
+    if(holdDirection===direction)return;
+    stopMovement();holdDirection=direction;
+    pad.querySelector('[data-solo-direction="'+direction+'"]')?.classList.add('is-pressed');
+    try{navigator.vibrate?.(12);}catch{}
+    move(direction);
+    timer=setInterval(()=>{if(holdDirection===direction)move(direction);},165);
   }
   for(const button of pad.querySelectorAll('[data-solo-direction]')){
-    button.addEventListener('pointerdown',event=>{event.preventDefault();startHold(button.dataset.soloDirection);});
+    button.addEventListener('pointerdown',event=>{
+      if(button.disabled)return;
+      event.preventDefault();
+      try{button.setPointerCapture(event.pointerId);}catch{}
+      startHold(button.dataset.soloDirection);
+    });
     button.addEventListener('pointerup',stopMovement);
     button.addEventListener('pointercancel',stopMovement);
+    button.addEventListener('lostpointercapture',stopMovement);
   }
   document.addEventListener('pointerup',stopMovement);
   document.addEventListener('keydown',event=>{
@@ -140,13 +153,25 @@ function createPlaySolo({getProfileId,returnToHub,toast}){
   });
   document.addEventListener('keyup',event=>{if(directions[event.key])stopMovement();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stopMovement();});
-  canvas.addEventListener('touchstart',event=>{canvas.dataset.touchX=event.touches[0].clientX;canvas.dataset.touchY=event.touches[0].clientY;},{passive:true});
-  canvas.addEventListener('touchend',event=>{
-    const dx=event.changedTouches[0].clientX-Number(canvas.dataset.touchX||0);
-    const dy=event.changedTouches[0].clientY-Number(canvas.dataset.touchY||0);
-    if(Math.max(Math.abs(dx),Math.abs(dy))<20)return;
-    move(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up'));
-  },{passive:true});
+  canvas.addEventListener('pointerdown',event=>{
+    if(kind!=='neon'||!maze||maze.status!=='active')return;
+    swipeOrigin={x:event.clientX,y:event.clientY,pointerId:event.pointerId};
+    try{canvas.setPointerCapture(event.pointerId);}catch{}
+  });
+  canvas.addEventListener('pointermove',event=>{
+    if(!swipeOrigin||swipeOrigin.pointerId!==event.pointerId)return;
+    const dx=event.clientX-swipeOrigin.x,dy=event.clientY-swipeOrigin.y;
+    if(Math.max(Math.abs(dx),Math.abs(dy))<15)return;
+    const direction=Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up');
+    startHold(direction);
+    swipeOrigin={x:event.clientX,y:event.clientY,pointerId:event.pointerId};
+  });
+  const finishSwipe=()=>{swipeOrigin=null;stopMovement();};
+  canvas.addEventListener('pointerup',finishSwipe);
+  canvas.addEventListener('pointercancel',finishSwipe);
+  canvas.addEventListener('lostpointercapture',finishSwipe);
+  for(const target of [canvas,pad])
+    target.addEventListener('touchmove',event=>{if(event.cancelable)event.preventDefault();},{passive:false});
   function newMaze(){
     if(!engine)return;
     maze=engine.newNeonGame('local','solo',['solo'],'solo',Date.now());
