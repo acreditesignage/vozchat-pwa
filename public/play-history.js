@@ -47,7 +47,7 @@ function createPlayHistory({api,toast,getMe,getIdentities,getRooms,getRoom,openC
   function addGame(entry){
     const item=document.createElement('div');item.className='play-history-row';
     const emblem=document.createElement('span');emblem.className='play-history-icon';
-    emblem.textContent=entry.kind==='neon-maze'?'✦':'✕';
+    emblem.textContent=entry.kind==='neon-maze'?'✦':entry.kind==='bomb'?'💣':'✕';
     const info=document.createElement('div');info.className='play-history-info';
     const title=document.createElement('strong');title.textContent=entry.name+' com '+entry.otherName;
     const result=document.createElement('span');
@@ -97,7 +97,7 @@ function createPlayHistory({api,toast,getMe,getIdentities,getRooms,getRoom,openC
   function showContacts(){
     const target=$('playHistoryContacts');target.replaceChildren();
     const contacts=getRooms().filter(room=>room.isDirect);
-    $('playHubContactsTitle').textContent='Escolha um contato para '+(selectedGame==='neon-maze'?'Labirinto Neon':'Jogo da Velha');
+    $('playHubContactsTitle').textContent='Escolha um contato para '+(selectedGame==='neon-maze'?'Labirinto Neon':selectedGame==='bomb'?'Arena Bomba':'Jogo da Velha');
     if(!contacts.length){
       const message=document.createElement('p');message.className='pending-empty';
       message.textContent='Nenhum contato aprovado neste perfil. Adicione alguém por ID ou jogue sozinho.';
@@ -125,7 +125,7 @@ function createPlayHistory({api,toast,getMe,getIdentities,getRooms,getRoom,openC
   for(const [id,game] of [['playHubSoloNeon','neon'],['playHubSoloTic','tic']]){
     $(id).addEventListener('click',()=>{dialog.close();void solo.open(game);});
   }
-  for(const [id,game] of [['playHubDuoNeon','neon-maze'],['playHubDuoTic','tic-tac-toe']]){
+  for(const [id,game] of [['playHubDuoBomb','bomb'],['playHubDuoNeon','neon-maze'],['playHubDuoTic','tic-tac-toe']]){
     $(id).addEventListener('click',()=>{
       selectedGame=game;
       $('playHubContactsSection').hidden=false;
