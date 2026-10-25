@@ -81,7 +81,7 @@ test('chamadas privadas: criar, atender, autenticar câmera/microfone, recusar e
   assert.equal(jwt.video.canSubscribe,true);
   assert.equal(jwt.video.canPublish,true);
   assert.deepEqual(jwt.video.canPublishSources,['microphone','camera']);
-  assert.ok(jwt.exp>jwt.iat);
+  assert.ok(jwt.exp>jwt.nbf && jwt.exp-jwt.nbf<=601,'token temporário');
   const ended=await req('POST',uri+'/end',{},b.cookie);
   assert.equal(ended.status,200);
   const after=await req('GET','/api/calls/pending',undefined,a.cookie);
