@@ -23,7 +23,7 @@ function createNeonPlay({api,toast,getMe,getRoom,onInvitation}){
     const newInvitation=next.status==='pending'&&next.inviterId!==currentUid()&&
       (!game||game.id!==next.id||game.status!=='pending');
     roomId=next.roomId;setGame(next);
-    if(newInvitation){show();onInvitation?.();}
+    if(newInvitation)onInvitation?.();
   }
   function actionButton(label,actionName,cls){
     const button=document.createElement('button');
