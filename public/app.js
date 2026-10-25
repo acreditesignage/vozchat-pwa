@@ -1,4 +1,3 @@
-import {createNeonPlay} from './neon-maze-ui.js';
 const $ = q => document.querySelector(q);
 let me=null, identities=[], rooms=[], current=null, messages=[], events=null, isRegister=false, recorder=null, pieces=[], recordingStart=0, recordingTicker=null, recordedCanceled=false, deferredInstall=null, pendingFiles=[],pendingRoom=null,previewUrl=null,uploading=false;
 const joinParam = new URLSearchParams(location.search).get('join');
@@ -22,7 +21,7 @@ const day = iso => new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month
 let toastTimer;
 function toast(msg) {const el=$('#toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3700);}
 async function api(url,{method='GET',data,headers={}}={}) {let opt={method,credentials:'same-origin',headers};if(data!==undefined){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(data);}let response;try{response=await fetch(url,opt);}catch{throw new Error('Falha na conexão com o servidor.');}let json=await response.json().catch(()=>({}));if(!response.ok)throw new Error(json.error||'Não foi possível concluir.');return json;}
-const neonPlay=createNeonPlay({api,toast,getMe:()=>me,getRoom:()=>current,
+const neonPlay=window.createNeonPlay({api,toast,getMe:()=>me,getRoom:()=>current,
   onInvitation:()=>{
     $('#playChooser').hidden=true;
     playPanelOpen=false;renderPlayPanel();
