@@ -64,7 +64,16 @@ export function neonMove(game,uid,direction,at=Date.now()){
   if(game.pellets.length===0&&game.powers.length===0){
     game.status='won';game.finishedAt=nowISO();game.updatedAt=game.finishedAt;return {changed:true};
   }
-  if(game.moves%3===0)moveNeonDrones(game);
+  // O jogador anda apenas sob comando. Os drones avançam pelo relógio, não por jogadas.
+  neonCollisions(game);
+  game.updatedAt=nowISO();
+  return {changed:true};
+}
+export function neonTick(game){
+  if(game.status!=='active')return {changed:false};
+  // O campo moves também identifica a versão do tabuleiro para sincronização.
+  game.moves=(game.moves||0)+1;
+  moveNeonDrones(game);
   neonCollisions(game);
   game.updatedAt=nowISO();
   return {changed:true};
