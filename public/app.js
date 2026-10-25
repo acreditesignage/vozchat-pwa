@@ -1040,7 +1040,6 @@ $('#settingsCompact').addEventListener('change',event=>{
 applyCompact();
 
 window.addEventListener('online',()=>{$('#offline').hidden=true;toast('Conectado novamente.');});window.addEventListener('offline',()=>{$('#offline').hidden=false;});$('#offline').hidden=navigator.onLine;
-window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;});
-$('#installButton').addEventListener('click',async()=>{if(deferredInstall){deferredInstall.prompt();await deferredInstall.userChoice;deferredInstall=null, pendingFiles=[],pendingRoom=null,previewUrl=null,uploading=false;}else{toast(/iPhone|iPad|iPod/i.test(navigator.userAgent)?'No Safari, toque em Compartilhar → Adicionar à Tela de Início.':'No menu do navegador, selecione Instalar app ou Adicionar à tela inicial.');}});
+// O guia de instalação compartilhado gerencia o botão Instalar e o evento nativo beforeinstallprompt.
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
 authMode(true);start();

@@ -8,7 +8,7 @@
   <link rel="manifest" href="/talk.webmanifest">
   <link rel="icon" href="/icons/flowtalk.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="/talk.css">
+  <link rel="stylesheet" href="/talk.css"><link rel="stylesheet" href="/install-guide.css">
   <title>FlowTalk — Rádio direto</title>
 </head>
 <body>
@@ -51,10 +51,24 @@
         <div id="flowtalkAudioOutputs" hidden aria-hidden="true"></div>
         <p class="hint">Mantenha o FlowTalk aberto para ouvir. Com a tela bloqueada, é necessário um app nativo.</p>
       </section>
-      <div class="tip">Para ter o FlowTalk na tela inicial: Safari → Compartilhar → Adicionar à Tela de Início.</div>
+      <div class="tip"><button type="button" id="installGuideTalk" class="install-guide-help">Adicionar o FlowTalk à Tela de Início</button></div>
     </section>
     <footer>FlowTalk • comunicação ao vivo, sem gravar no histórico.</footer>
   </main>
+    <div id="installGuide" class="install-guide-backdrop" hidden>
+    <section class="install-guide-card" role="dialog" aria-modal="true" aria-labelledby="installGuideTitle" aria-describedby="installGuideDescription" tabindex="-1">
+      <button id="installGuideClose" class="install-guide-close" type="button" aria-label="Fechar instruções">×</button>
+      <div class="install-guide-icon"><img id="installGuideIcon" src="/icons/icon.svg" alt="" width="42" height="42"></div>
+      <span class="install-guide-eyebrow">ACESSO MAIS RÁPIDO</span>
+      <h2 id="installGuideTitle">Tenha o VozChat na sua tela inicial</h2>
+      <p id="installGuideDescription">Abra como um aplicativo, sem precisar procurar o link novamente.</p>
+      <div id="installGuideSteps" class="install-guide-steps"></div>
+      <button id="installGuideAction" class="install-guide-primary" type="button">Entendi</button>
+      <button id="installGuideLater" class="install-guide-later" type="button">Agora não</button>
+      <p class="install-guide-note">É opcional e você pode continuar usando pelo navegador.</p>
+    </section>
+  </div>
+  <script defer src="/install-guide.js"></script>
   <script type="module" src="/talk.js"></script>
 </body>
 </html>

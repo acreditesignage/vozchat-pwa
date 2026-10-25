@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#111827"><meta name="description" content="VozChat: conversas e mensagens de voz, em qualquer dispositivo."><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="/icons/icon.svg"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png"><link rel="stylesheet" href="/styles.css"><title>VozChat — Conversas e áudios</title></head>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#111827"><meta name="description" content="VozChat: conversas e mensagens de voz, em qualquer dispositivo."><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="/icons/icon.svg"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/install-guide.css"><title>VozChat — Conversas e áudios</title></head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="offline" class="offline" hidden>Você está offline. Conecte-se para enviar mensagens.</div>
@@ -105,5 +105,19 @@
       <p class="call-footnote">Chamada privada via LiveKit. Áudio e vídeo não são gravados no chat.</p>
     </div>
   </section>
+    <div id="installGuide" class="install-guide-backdrop" hidden>
+    <section class="install-guide-card" role="dialog" aria-modal="true" aria-labelledby="installGuideTitle" aria-describedby="installGuideDescription" tabindex="-1">
+      <button id="installGuideClose" class="install-guide-close" type="button" aria-label="Fechar instruções">×</button>
+      <div class="install-guide-icon"><img id="installGuideIcon" src="/icons/icon.svg" alt="" width="42" height="42"></div>
+      <span class="install-guide-eyebrow">ACESSO MAIS RÁPIDO</span>
+      <h2 id="installGuideTitle">Tenha o VozChat na sua tela inicial</h2>
+      <p id="installGuideDescription">Abra como um aplicativo, sem precisar procurar o link novamente.</p>
+      <div id="installGuideSteps" class="install-guide-steps"></div>
+      <button id="installGuideAction" class="install-guide-primary" type="button">Entendi</button>
+      <button id="installGuideLater" class="install-guide-later" type="button">Agora não</button>
+      <p class="install-guide-note">É opcional e você pode continuar usando pelo navegador.</p>
+    </section>
+  </div>
+  <script defer src="/install-guide.js"></script>
   <script type="module" src="/app.js"></script>
 </body></html>

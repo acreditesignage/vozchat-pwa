@@ -1,0 +1,21 @@
+/* Instalação PWA: convite inicial responsivo, manual e acessível. */
+.install-guide-backdrop[hidden]{display:none!important}
+.install-guide-backdrop{position:fixed;inset:0;z-index:3500;display:grid;align-items:center;justify-items:center;padding:calc(15px + env(safe-area-inset-top)) 16px calc(15px + env(safe-area-inset-bottom));background:rgba(20,23,44,.67);overflow-y:auto}
+.install-guide-card{position:relative;width:min(100%,395px);max-height:calc(100dvh - 30px);overflow:auto;overscroll-behavior:contain;background:#fff;color:#1d2233;border-radius:23px;padding:24px 22px 19px;box-shadow:0 25px 65px #1116294d;text-align:center;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;outline:none}
+.install-guide-close{position:absolute;top:11px;right:11px;width:38px;height:38px;border:0;border-radius:50%;background:#f0eff9;color:#555b6b;font-size:27px;line-height:1;display:grid;place-items:center;cursor:pointer;touch-action:manipulation}
+.install-guide-icon{width:68px;height:68px;margin:1px auto 16px;display:grid;place-items:center;border-radius:22px;background:#f1edff}
+.install-guide-icon img{width:42px;height:42px;object-fit:contain}
+.install-guide-eyebrow{display:block;font-size:10px;font-weight:800;letter-spacing:1.5px;color:#6753d7}
+.install-guide-card h2{font-size:22px;line-height:1.2;letter-spacing:-.7px;margin:9px 0 9px}
+.install-guide-card p{font-size:13px;line-height:1.5;color:#727c90}
+.install-guide-steps{margin:17px 0;text-align:left;display:grid;gap:10px}
+.install-guide-step{display:flex;align-items:start;gap:12px;padding:11px;border-radius:13px;background:#f7f6fc}
+.install-guide-step-number{display:grid;place-items:center;width:26px;height:26px;flex:none;border-radius:50%;color:#5a47d0;background:#e8e4ff;font-weight:850;font-size:12px}
+.install-guide-step-copy{flex:1;min-width:0;color:#30364b;font-size:13px;line-height:1.4}
+.install-guide-step-copy strong{font-weight:800}
+.install-guide-primary{display:block;width:100%;min-height:48px;padding:12px 14px;color:white;background:#6955e3;border:none;border-radius:13px;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation}
+.install-guide-primary:hover,.install-guide-primary:focus-visible{background:#5642ca}
+.install-guide-later{display:block;width:100%;margin-top:8px;min-height:42px;border:none;background:transparent;color:#666d80;font-size:13px;font-weight:650;cursor:pointer;touch-action:manipulation}
+.install-guide-card .install-guide-note{font-size:11px;color:#9a9fae;margin:7px 0 0}
+@media(max-width:390px){.install-guide-card{padding:20px 16px 14px}.install-guide-card h2{font-size:20px}.install-guide-steps{margin:12px 0;gap:8px}}
+@media(prefers-reduced-motion:reduce){.install-guide-card{scroll-behavior:auto}}
