@@ -9,12 +9,13 @@ test('VozChat tem temas claro/escuro e troca manual ou automática, sem perder p
   const classList={toggle(){}};
   const buttons=['light','dark','auto'].map(mode=>({dataset:{themeValue:mode},attrs:{},classList,
     setAttribute(k,v){this.attrs[k]=v},addEventListener(name,fn){this.press=fn;}}));
+  const quick={attrs:{},setAttribute(k,v){this.attrs[k]=v},addEventListener(name,fn){this.press=fn;}};
   let sysDark=false,mediaHandler=null,ready=null;
   const meta={content:''},status={textContent:''};
   const doc={
     documentElement:{dataset:{},style:{}},
     querySelector(q){return q==='meta[name="theme-color"]'?meta:null;},
-    querySelectorAll(q){return q==='[data-theme-value]'?buttons:[];},
+    querySelectorAll(q){return q==='[data-theme-value]'?buttons:q==='[data-theme-toggle]'?[quick]:[];},
     getElementById(id){return id==='themeCurrentLabel'?status:null;},
     addEventListener(type,fn){if(type==='DOMContentLoaded')ready=fn;}
   };
@@ -26,6 +27,10 @@ test('VozChat tem temas claro/escuro e troca manual ou automática, sem perder p
   assert.equal(doc.documentElement.dataset.theme,'light');
   sysDark=true;mediaHandler();
   assert.equal(doc.documentElement.dataset.theme,'dark');
+  assert.equal(quick.attrs['aria-label'],'Ativar tema claro');
+  quick.press();
+  assert.equal(doc.documentElement.dataset.theme,'light');
+  assert.equal(settings.get('vozchat_theme_v1'),'light');
   buttons[0].press();
   assert.equal(window.VozChatTheme.get(),'light');
   assert.equal(doc.documentElement.dataset.theme,'light');
@@ -53,6 +58,9 @@ test('todas as entradas usam as duas aparências e botões de navegação reais'
   assert.match(app,/function renderRooms/);
   assert.match(sw,/\/premium\.css/);
   assert.match(sw,/\/theme\.js/);
-  assert.match(sw,/vozchat-shell-v23/);
+  assert.match(sw,/vozchat-shell-v24/);
+  assert.match(html,/data-theme-toggle/);
+  assert.match(talk,/data-theme-toggle/);
+  assert.match(read('public/talk.css'),/html\[data-theme="dark"\] \.appearance-toggle/);
   assert.doesNotThrow(()=>new Function(app));
 });

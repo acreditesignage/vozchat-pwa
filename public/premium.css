@@ -209,3 +209,12 @@ html[data-theme="dark"] .flowtalk-hold{color:#fff}
 .history-call-button svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .call-history-new{background:var(--ui-soft);color:var(--ui-accent);border:1px solid var(--ui-edge);border-radius:13px;padding:12px;margin:9px 16px 13px;min-height:44px;flex:none;font-size:12px;font-weight:800}
 @media(max-width:630px){.call-history-filters{padding-inline:16px}.history-call-row{gap:8px}.history-call-time{max-width:73px;white-space:normal;text-align:right}.call-history-list{padding-inline:10px}}
+
+/* Alternância imediata de aparência em qualquer largura de tela. */
+.appearance-toggle{display:grid;place-items:center;flex:none;width:35px;height:35px;min-width:35px;padding:7px;border:1px solid var(--ui-edge);border-radius:50%;background:var(--ui-soft);color:var(--ui-accent);box-shadow:none}
+.appearance-toggle svg{display:block;width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.appearance-toggle .appearance-sun{display:none}
+html[data-theme="dark"] .appearance-toggle .appearance-sun{display:block}
+html[data-theme="dark"] .appearance-toggle .appearance-moon{display:none}
+.appearance-toggle:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
+@media(max-width:360px){.sidebar-head .header-actions{gap:0}.sidebar-head .appearance-toggle{width:32px;height:32px;min-width:32px}}
