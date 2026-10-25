@@ -108,10 +108,14 @@ test('interface possui controles separados de áudio/vídeo, alerta e privacidad
   assert.match(app,/startCall\('video'\)/);
   assert.match(app,/call-incoming/);
   assert.match(app,/call-ended/);
+  assert.match(app,/VozChatRingtone\?\.start/);
+  assert.match(app,/VozChatRingtone\?\.stop/);
+  assert.match(html,/src="\/call-ringtone.js"/);
+  assert.match(sw,/\/call-ringtone.js/);
   assert.match(sw,/const isCall=payload\.kind==='call'/);
   assert.match(sw,/\/app\?open=/);
   assert.match(sw,/&call=/);
-  assert.match(sw,/vozchat-shell-v21/);
+  assert.match(sw,/vozchat-shell-v22/);
   assert.match(server,/camera=\(self\), microphone=\(self\)/);
   assert.match(css,/\.call-overlay/);
   assert.match(read('package.json'),/build:calls/);

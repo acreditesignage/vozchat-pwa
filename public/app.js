@@ -12,7 +12,7 @@ const day = iso => new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month
 let toastTimer;
 function toast(msg) {const el=$('#toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3700);}
 async function api(url,{method='GET',data,headers={}}={}) {let opt={method,credentials:'same-origin',headers};if(data!==undefined){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(data);}let response;try{response=await fetch(url,opt);}catch{throw new Error('Falha na conexão com o servidor.');}let json=await response.json().catch(()=>({}));if(!response.ok)throw new Error(json.error||'Não foi possível concluir.');return json;}
-function showAuth() {me=null;rooms=[];current=null;$('#auth').hidden=false;$('#app').hidden=true;$('#app').classList.remove('chat-open');if(events){events.close();events=null;}}
+function showAuth() {window.VozChatRingtone?.stop();me=null;rooms=[];current=null;$('#auth').hidden=false;$('#app').hidden=true;$('#app').classList.remove('chat-open');if(events){events.close();events=null;}}
 function sortRooms() {rooms.sort((a,b)=>new Date(b.last?.createdAt||b.createdAt)-new Date(a.last?.createdAt||a.createdAt));}
 function authMode(register) {isRegister=register;$('#nameField').hidden=!register;$('#realName').required=register;$('#usernameField').hidden=register;$('#username').required=!register;$('#authDescription').textContent=register?'Escolha como quer ser chamado. Seu ID exclusivo será criado automaticamente.':'Entre com seu ID numérico (ou usuário antigo) e sua senha.';$('#authTitle').textContent=register?'Crie sua conta':'Entre na sua conta';$('#authSubmit').innerHTML=register?'Criar conta <span>→</span>':'Entrar <span>→</span>';$('#authSwitchLabel').firstChild.textContent=register?'Já possui uma conta? ':'Ainda não tem conta? ';$('#authSwitch').textContent=register?'Entrar':'Criar conta';$('#password').autocomplete=register?'new-password':'current-password';}
 $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
@@ -202,12 +202,12 @@ function connectEvents(){
     if(currentCall?.id===incoming.id)return;
     currentCall=incoming;
     presentCall(incoming,true);
-    if(document.visibilityState==='visible'){soundAlert();vibrateAlert();}
   });
   events.addEventListener('call-update',event=>{
     const status=JSON.parse(event.data);
     if(currentCall?.id!==status.id)return;
     currentCall=status;
+    if(status.state==='active'&&status.callerId===me?.id)window.VozChatRingtone?.stop();
     if(!$('#callOverlay').hidden&&!$('#callIncomingActions').hidden)return;
     if(!$('#callOverlay').hidden&&!callEngine)$('#callStatus').textContent=status.state==='active'?'Chamada atendida · conectando…':'Chamando…';
   });
@@ -889,6 +889,15 @@ $('#micButton').addEventListener('click',()=>recorder?.state==='recording'?stopR
 
 // Chamadas ao vivo de áudio e vídeo: o FlowTalk PTT permanece separado.
 function presentCall(call,incoming){
+  if(call.state==='ringing'){
+    window.VozChatRingtone?.start({
+      id:call.id,incoming:incoming&&call.callerId!==me?.id,
+      expiresAt:call.expiresAt,
+      audio:()=>{unlockAlertAudio();return alertAudio;},
+      sound:()=>notifyPrefs.sound!==false,
+      vibrate:()=>notifyPrefs.vibrate!==false
+    });
+  }else window.VozChatRingtone?.stop();
   const room=rooms.find(r=>r.id===call.roomId);
   const name=room?.name||call.callerName||'Contato';
   $('#callOverlay').hidden=false;
@@ -910,6 +919,7 @@ function presentCall(call,incoming){
   $('#callCamera').setAttribute('aria-pressed','true');
 }
 async function closeCallUI(notifyServer=true){
+  window.VozChatRingtone?.stop();
   callAttempt++;
   const call=currentCall;
   currentCall=null;
@@ -929,6 +939,7 @@ async function closeCallUI(notifyServer=true){
 }
 async function connectCurrentCall(){
   const call=currentCall;
+  if(call?.callerId!==me?.id)window.VozChatRingtone?.stop();
   if(!call||joiningCall)return;
   joiningCall=true;
   const generation=++callAttempt;
@@ -991,6 +1002,7 @@ $('#callAudioButton').addEventListener('click',()=>void startCall('audio'));
 $('#callVideoButton').addEventListener('click',()=>void startCall('video'));
 $('#callAccept').addEventListener('click',async()=>{
   const call=currentCall;if(!call)return;
+  window.VozChatRingtone?.stop();
   const btn=$('#callAccept');btn.disabled=true;
   try{
     await api('/api/calls/'+call.id+'/accept',{method:'POST',data:{}});
@@ -1036,6 +1048,7 @@ $('#callSpeaker').addEventListener('click',async()=>{
   catch{toast('Toque novamente para ativar o áudio.');}
 });
 window.addEventListener('pagehide',()=>{
+  window.VozChatRingtone?.stop();
   if(!currentCall)return;
   const id=currentCall.id;
   void closeCallUI(false);
