@@ -507,6 +507,33 @@ async function api(req,res,url) {
   if(method==='POST'&&p==='/api/logout') { const token=cookie(req).vozchat_session; db.sessions=db.sessions.filter(s=>s.hash!==sha(token||'')); await save(); return json(res,200,{ok:true},{'Set-Cookie':sessionCookie(req,'',0)}); }
   if(method==='GET'&&p==='/api/bootstrap') return json(res,200,{user:safeUser(u),identities:identitiesView(u),rooms:db.rooms.filter(r=>!r.inactive&&r.members.includes(u.id)).map(r=>roomView(r,u.id))});
   if(method==='GET'&&p==='/api/identities')return json(res,200,{identities:identitiesView(u)});
+  // Histórico privado de partidas do perfil ativo, mesmo após fechar a conversa.
+  // Não reúne perfis Pessoal/Família/Profissional e não permite consultar terceiros.
+  if(method==='GET'&&p==='/api/play/history'){
+    const all=[...(db.games||[]).map(game=>({...game,kind:'tic-tac-toe'})),
+      ...(db.neonGames||[]).map(game=>({...game,kind:'neon-maze'}))];
+    const history=all.filter(game=>{
+      const room=db.rooms.find(r=>r.id===game.roomId);
+      return game.users?.includes(u.id)&&room?.directKey&&room.members.includes(u.id)&&
+        room.members.length===2&&game.users.every(uid=>{
+          const person=db.users.find(user=>user.id===uid);
+          return person&&person.identityType!=='Profissional';
+        });
+    }).sort((a,b)=>new Date(b.updatedAt||b.createdAt)-new Date(a.updatedAt||a.createdAt))
+    .slice(0,100).map(game=>{
+      const room=db.rooms.find(r=>r.id===game.roomId);
+      const otherId=game.users.find(uid=>uid!==u.id);
+      const contact=db.users.find(person=>person.id===otherId);
+      return {id:game.id,roomId:game.roomId,kind:game.kind,
+        name:game.kind==='neon-maze'?'Labirinto Neon':'Jogo da Velha',
+        status:game.status,createdAt:game.createdAt,updatedAt:game.updatedAt,
+        finishedAt:game.finishedAt||null,winner:game.winner||null,
+        score:game.kind==='neon-maze'?game.score:null,
+        otherName:contact?.name||'Contato',otherPublicId:contact?.publicId||null,
+        canReopen:!room.inactive};
+    });
+    return json(res,200,{games:history});
+  }
   if(method==='GET'&&/^\/api\/play\/neon\/room\/[0-9a-f-]{36}$/i.test(p)){
     const roomId=p.split('/').pop(),room=member(u.id,roomId);
     if(!room)return error(res,403,'Acesso negado a esta conversa.');
@@ -526,8 +553,6 @@ async function api(req,res,url) {
       if(previous&&expireNeon(previous)){await save();neonEmit(previous);}
       if(previous&&['pending','active'].includes(previous.status))
         return error(res,409,'Há um convite ou uma partida de labirinto em andamento.');
-      db.neonGames=db.neonGames.filter(game=>['pending','active'].includes(game.status)||
-        Date.now()-new Date(game.finishedAt||game.updatedAt).getTime()<30*86400000);
       const opponent=room.members.find(uid=>uid!==u.id);
       const game=newNeonGame(id(),roomId,[u.id,opponent],u.id,crypto.randomInt(1,0x7fffffff));
       db.neonGames.push(game);await save();neonEmit(game);
@@ -588,8 +613,6 @@ async function api(req,res,url) {
       if(latest&&expirePlayGame(latest)){await save();emitPlayGame(latest);}
       if(latest&&['pending','active'].includes(latest.status))
         return error(res,409,'Já existe uma partida em andamento ou convite pendente nesta conversa.');
-      db.games=db.games.filter(g=>['pending','active'].includes(g.status)||
-        Date.now()-new Date(g.finishedAt||g.updatedAt).getTime()<30*86400000);
       const opponent=room.members.find(uid=>uid!==u.id);
       const now=new Date().toISOString();
       const game={id:id(),roomId:rid,users:[u.id,opponent],inviterId:u.id,
