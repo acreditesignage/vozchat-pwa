@@ -428,3 +428,67 @@ html[data-theme="dark"] .appearance-toggle .appearance-moon{display:none}
   .play-history-dialog{max-height:86dvh;padding:19px}
   .play-history-row{padding:8px 6px;gap:7px}
 }
+
+
+/* VazChat Play: seleção de jogos visível antes do histórico, inclusive sem contatos. */
+.play-hub-intro{display:flex;flex-direction:column;gap:4px;margin:12px 0}
+.play-hub-intro strong{font-size:14px;color:var(--ui-strong)}
+.play-hub-intro small{font-size:11px;color:var(--ui-muted)}
+.play-hub-games{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0 15px}
+.play-hub-game-card{display:flex;flex-direction:column;gap:7px;min-width:0;
+  border:1px solid var(--ui-edge);border-radius:15px;background:var(--ui-soft);padding:10px}
+.play-hub-game-card>strong{color:var(--ui-strong);font-size:13px}
+.play-hub-game-card>small{min-height:30px;color:var(--ui-muted);line-height:1.45;font-size:10px}
+.play-hub-game-art{display:grid;place-items:center;border-radius:12px;height:65px;
+  color:#83e7ff;font-size:24px;font-weight:850;letter-spacing:3px}
+.play-hub-neon-art{background:radial-gradient(circle at 15% 30%,#2958aa,#081528 75%)}
+.play-hub-tic-art{background:linear-gradient(135deg,#193a72,#4b2678);color:#ffd1f5}
+.play-hub-game-actions{display:flex;flex-direction:column;gap:6px}
+.play-hub-game-actions button,.play-hub-add-contact{min-height:35px;width:100%;border:1px solid var(--ui-edge);
+  border-radius:10px;padding:7px 8px;font-size:11px;font-weight:750;color:var(--ui-accent);
+  background:var(--ui-card);text-align:center}
+.play-hub-game-actions .play-hub-primary{background:var(--ui-accent);color:#fff;border-color:transparent}
+.play-hub-contact-section{padding:8px 0 14px;border-top:1px solid var(--ui-edge)}
+.play-hub-contact-section[hidden]{display:none!important}
+.play-hub-contact-section h3{margin:7px 0 12px!important}
+.play-hub-add-contact{margin-top:10px;padding:10px}
+.play-history-details{border-top:1px solid var(--ui-edge);padding:13px 0 7px;margin-top:6px}
+.play-history-details summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
+  font-size:13px;font-weight:800;color:var(--ui-strong);padding:6px 0}
+.play-history-details summary::-webkit-details-marker{display:none}
+.play-history-details summary::before{content:'▸';margin-right:8px;color:var(--ui-accent)}
+.play-history-details[open] summary::before{content:'▾'}
+.play-history-details summary span{margin-left:auto;background:var(--ui-soft);color:var(--ui-accent);
+  border-radius:16px;padding:5px 10px;font-size:11px}
+.play-history-details .play-history-stats{margin:9px 0}
+.play-solo-dialog{width:min(560px,calc(100vw - 18px));max-height:min(94dvh,860px);
+  padding:18px;overflow:auto;text-align:center;background:var(--ui-card);color:var(--ui-text)}
+.play-solo-dialog .dialog-head{margin-bottom:4px}
+.play-solo-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.play-solo-head h2{margin:12px 0 8px;color:var(--ui-strong);font-size:19px}
+.play-solo-head span{font-size:12px;color:var(--ui-accent);font-weight:800}
+.play-solo-status{font-size:12px!important;color:var(--ui-muted)!important;margin:4px 0 10px!important}
+#playSoloCanvas{width:100%;max-width:510px;aspect-ratio:17/13;height:auto;border-radius:12px;
+  border:1px solid #275c9a;touch-action:none;background:#0a1628}
+.play-solo-tic-board{margin:8px auto;display:grid;grid-template-columns:repeat(3,1fr);
+  gap:7px;max-width:min(75vw,250px);aspect-ratio:1}
+.play-solo-tic-square{background:var(--ui-soft);border:1px solid var(--ui-edge);
+  border-radius:14px;font-size:45px;font-weight:850;color:var(--ui-accent);min-width:0;min-height:0}
+.play-solo-tic-square.mark-o{color:#eb80b6}
+.play-solo-tic-square:disabled{opacity:1}
+.play-solo-dpad{display:flex;flex-direction:column;gap:5px;align-items:center;touch-action:none;user-select:none;margin:7px auto}
+.play-solo-dpad div{display:flex;gap:5px}
+.play-solo-dpad button{border:1px solid var(--ui-edge);border-radius:11px;background:var(--ui-soft);
+  color:var(--ui-accent);width:60px;height:43px;font-size:20px;touch-action:none}
+.play-solo-dpad button:disabled{opacity:.35}
+.play-solo-actions{display:flex;gap:8px;justify-content:center;margin-top:12px}
+.play-solo-actions button{background:var(--ui-soft);color:var(--ui-accent);border:1px solid var(--ui-edge);
+  border-radius:11px;padding:11px 13px;font-weight:750;font-size:12px;min-height:43px}
+.play-solo-note{color:var(--ui-muted)!important;font-size:10px!important;margin:13px 0 0!important}
+@media(max-width:630px){
+ .play-hub-games{gap:7px}.play-hub-game-card{padding:8px}
+ .play-hub-game-art{height:53px;font-size:19px}
+ .play-hub-game-actions button{font-size:10px}
+ .play-solo-dialog{padding:13px 11px;max-height:93dvh}
+ .play-solo-dpad button{height:38px;width:54px}
+}

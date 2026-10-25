@@ -30,10 +30,13 @@ const neonPlay=window.createNeonPlay({api,toast,getMe:()=>me,getRoom:()=>current
 });
 const playHistory=window.createPlayHistory({
   api,toast,getMe:()=>me,getIdentities:()=>identities,getRooms:()=>rooms,getRoom:()=>current,
-  openChat:async(roomId,play)=>{
+  openContact:contactId=>openContactDialog(contactId),
+  openChat:async(roomId,gameKind)=>{
     switchMobileTab('chats');setConversationFilter('all');
     await openRoom(roomId);
-    if(play&&$('#playChooser').hidden)$('#playButton').click();
+    if(gameKind==='neon-maze')$('#chooseNeonMaze').click();
+    else if(gameKind==='tic-tac-toe')$('#chooseTicTacToe').click();
+    else if(gameKind&&$('#playChooser').hidden)$('#playButton').click();
   }
 });
 function showAuth() {window.VozChatRingtone?.stop();playHistory.reset();neonPlay.reset();me=null;identities=[];rooms=[];current=null;knownIncomingRequestIds=null;$('#auth').hidden=false;$('#app').hidden=true;$('#app').classList.remove('chat-open');if(events){events.close();events=null;}}
