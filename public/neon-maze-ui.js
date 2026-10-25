@@ -4,13 +4,29 @@ function createNeonPlay({api,toast,getMe,getRoom,onInvitation}){
   const panel=$('neonPanel'),canvas=$('neonCanvas'),ctx=canvas.getContext('2d');
   const actions=$('neonActions'),status=$('neonStatus'),score=$('neonScore'),lives=$('neonLives');
   let game=null,roomId=null,busy=false,moving=false,holdTimer=null,heldDirection=null;
+  let swipeStart=null;
+  const hideGame=()=>{
+    stopHold();
+    panel.hidden=true;
+    panel.classList.remove('game-fullscreen');
+    document.documentElement.classList.remove('vozchat-game-active');
+  };
   const WIDTH=17,HEIGHT=13,CELL=27,OX=25,OY=19;
   const svgColors=['#5ef7ed','#ffa5dc'];
   const gameStatusLabel={declined:'O convite foi recusado.',canceled:'Convite cancelado.',
     expired:'A partida expirou.',abandoned:'A partida terminou.',won:'🏆 Vocês venceram juntos!',
     lost:'Os drones venceram desta vez. Tentem novamente!'};
   const currentUid=()=>getMe()?.id;
-  const show=()=>{panel.hidden=false;draw();};
+  const show=()=>{
+    // Remover apenas o painel do fluxo de mensagens, evitando recortes/zoom do iPhone.
+    if(panel.parentElement!==document.body)document.body.append(panel);
+    const focused=document.activeElement;
+    if(focused&&typeof focused.blur==='function')focused.blur();
+    panel.classList.add('game-fullscreen');
+    document.documentElement.classList.add('vozchat-game-active');
+    panel.hidden=false;
+    draw();
+  };
   const safeRoom=()=>roomId&&roomId===getRoom();
   const isActive=()=>game?.status==='active';
   function setGame(next){
@@ -135,17 +151,55 @@ function createNeonPlay({api,toast,getMe,getRoom,onInvitation}){
     }catch(error){if(error.message&&!/Aguarde|partida/i.test(error.message))console.warn('Movimento não enviado:',error.message);}
     finally{moving=false;}
   }
-  function stopHold(){if(holdTimer)clearInterval(holdTimer);holdTimer=null;heldDirection=null;}
+  function stopHold(){
+    if(holdTimer!==null)clearInterval(holdTimer);
+    holdTimer=null;heldDirection=null;
+    for(const control of panel.querySelectorAll('[data-neon-dir]'))
+      control.classList.remove('is-pressed');
+  }
   function beginHold(direction){
     if(!isActive()||panel.hidden)return;
-    stopHold();heldDirection=direction;void move(direction);
-    holdTimer=setInterval(()=>{if(heldDirection)void move(heldDirection);},210);
+    if(heldDirection===direction)return;
+    stopHold();heldDirection=direction;
+    const activeButton=panel.querySelector('[data-neon-dir="'+direction+'"]');
+    activeButton?.classList.add('is-pressed');
+    try{navigator.vibrate?.(12);}catch{}
+    void move(direction);
+    holdTimer=setInterval(()=>{if(heldDirection===direction)void move(direction);},175);
   }
   for(const button of panel.querySelectorAll('[data-neon-dir]')){
-    button.addEventListener('pointerdown',event=>{event.preventDefault();beginHold(button.dataset.neonDir);});
+    button.addEventListener('pointerdown',event=>{
+      if(button.disabled)return;
+      event.preventDefault();
+      try{button.setPointerCapture(event.pointerId);}catch{}
+      beginHold(button.dataset.neonDir);
+    });
     button.addEventListener('pointerup',stopHold);
     button.addEventListener('pointercancel',stopHold);
     button.addEventListener('lostpointercapture',stopHold);
+  }
+  // Deslizar sobre o labirinto muda a direção; tocar não move automaticamente.
+  canvas.addEventListener('pointerdown',event=>{
+    if(!isActive()||panel.hidden)return;
+    swipeStart={x:event.clientX,y:event.clientY,pointerId:event.pointerId};
+    try{canvas.setPointerCapture(event.pointerId);}catch{}
+  });
+  canvas.addEventListener('pointermove',event=>{
+    if(!swipeStart||swipeStart.pointerId!==event.pointerId||!isActive())return;
+    const dx=event.clientX-swipeStart.x,dy=event.clientY-swipeStart.y;
+    if(Math.max(Math.abs(dx),Math.abs(dy))<15)return;
+    const direction=Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up');
+    beginHold(direction);
+    swipeStart={x:event.clientX,y:event.clientY,pointerId:event.pointerId};
+  });
+  const endSwipe=()=>{swipeStart=null;stopHold();};
+  canvas.addEventListener('pointerup',endSwipe);
+  canvas.addEventListener('pointercancel',endSwipe);
+  canvas.addEventListener('lostpointercapture',endSwipe);
+  for(const target of [canvas,panel.querySelector('.neon-pad')]){
+    target?.addEventListener('touchmove',event=>{
+      if(event.cancelable)event.preventDefault();
+    },{passive:false});
   }
   document.addEventListener('pointerup',stopHold);
   const keys={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',
@@ -158,20 +212,20 @@ function createNeonPlay({api,toast,getMe,getRoom,onInvitation}){
   });
   document.addEventListener('keyup',event=>{if(keys[event.key])stopHold();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stopHold();});
-  $('neonClose').addEventListener('click',()=>{stopHold();panel.hidden=true;});
+  $('neonClose').addEventListener('click',hideGame);
   return {
     get state(){return game;},
     get visible(){return !panel.hidden;},
     receive,
-    close(){stopHold();panel.hidden=true;},
-    reset(){stopHold();game=null;roomId=null;panel.hidden=true;},
+    close(){hideGame();},
+    reset(){hideGame();game=null;roomId=null;},
     async open(rid){
       if(!rid)return;
       roomId=rid;show();
       try{
         const data=await api('/api/play/neon/room/'+encodeURIComponent(rid));
         if(roomId===rid&&rid===getRoom()){game=data.game;draw();}
-      }catch(error){toast(error.message);panel.hidden=true;}
+      }catch(error){toast(error.message);hideGame();}
     }
   };
 }
