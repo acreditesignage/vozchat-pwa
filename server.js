@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { TrackSource } from '@livekit/protocol';
 import { fileURLToPath } from 'node:url';
+import {newNeonGame,beginNeonGame,neonMove,viewNeonGame} from './public/neon-maze-engine.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const STATIC = path.join(ROOT, 'public');
@@ -89,7 +90,7 @@ console.log('VozChat Web Push:',pushEnabled?'configured':'not_configured');
 const webPush = pushEnabled ? (await import('web-push')).default : null;
 if(webPush) webPush.setVapidDetails(process.env.VAPID_SUBJECT || 'https://vozchat-pwa.onrender.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 const pool = POSTGRES_URL ? new (await import('pg')).default.Pool({connectionString:POSTGRES_URL,max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000}) : null;
-let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], largeUploads: [], contactRequests: [], callHistory: [], games: [], nextPublicId: '10', pushSubscriptions: [] };
+let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], largeUploads: [], contactRequests: [], callHistory: [], games: [], neonGames: [], nextPublicId: '10', pushSubscriptions: [] };
 if(!pool) {
   try {db={...db,...JSON.parse(fs.readFileSync(DATA_FILE,'utf8'))};}
   catch(err){if(err.code!=='ENOENT')throw err;}
@@ -219,7 +220,7 @@ async function notifyMembers(room, sender, msg) {
   if(!recipients.size)return;
   const payload=JSON.stringify({
     title: room.directKey ? sender.name : room.name,
-    body: msg.type==='flowtalk'?'📻 Chamado no FlowTalk':msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':msg.type==='game'?'🎮 Convite para Jogo da Velha':'Nova mensagem',
+    body: msg.type==='flowtalk'?'📻 Chamado no FlowTalk':msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':msg.type==='game'?'🎮 Convite para Jogo da Velha':msg.type==='maze'?'🎮 Convite para Labirinto Neon':'Nova mensagem',
     roomId:room.id,
     url:'/app?open='+encodeURIComponent(room.id),
     tag:'vozchat-'+room.id,
@@ -368,6 +369,15 @@ function expirePlayGame(game){
   return true;
 }
 function emitPlayGame(game){push(game.users,'play-update',playView(game));}
+function neonRoomGame(roomId){return [...(db.neonGames||[])].reverse().find(g=>g.roomId===roomId)||null;}
+function neonView(game){return viewNeonGame(game,uid=>db.users.find(u=>u.id===uid));}
+function neonEmit(game){push(game.users,'neon-update',neonView(game));}
+function expireNeon(game){
+  if(!game||!['pending','active'].includes(game.status))return false;
+  if(Date.now()-new Date(game.updatedAt).getTime()<24*3600000)return false;
+  game.status='expired';game.updatedAt=new Date().toISOString();game.finishedAt=game.updatedAt;
+  return true;
+}
 
 function groupMembers(r) {
   return r.members.map(uid=>db.users.find(u=>u.id===uid)).filter(Boolean)
@@ -497,6 +507,67 @@ async function api(req,res,url) {
   if(method==='POST'&&p==='/api/logout') { const token=cookie(req).vozchat_session; db.sessions=db.sessions.filter(s=>s.hash!==sha(token||'')); await save(); return json(res,200,{ok:true},{'Set-Cookie':sessionCookie(req,'',0)}); }
   if(method==='GET'&&p==='/api/bootstrap') return json(res,200,{user:safeUser(u),identities:identitiesView(u),rooms:db.rooms.filter(r=>!r.inactive&&r.members.includes(u.id)).map(r=>roomView(r,u.id))});
   if(method==='GET'&&p==='/api/identities')return json(res,200,{identities:identitiesView(u)});
+  if(method==='GET'&&/^\/api\/play\/neon\/room\/[0-9a-f-]{36}$/i.test(p)){
+    const roomId=p.split('/').pop(),room=member(u.id,roomId);
+    if(!room)return error(res,403,'Acesso negado a esta conversa.');
+    if(!canPlayInRoom(room))return error(res,403,'O jogo está disponível somente em conversas Pessoal ou Família.');
+    const game=neonRoomGame(roomId);
+    if(game&&expireNeon(game)){await save();neonEmit(game);}
+    return json(res,200,{game:game?neonView(game):null});
+  }
+  if(method==='POST'&&p==='/api/play/neon/invite'){
+    const input=JSON.parse((await body(req,1024)).toString('utf8'));
+    const roomId=String(input.roomId||''),room=member(u.id,roomId);
+    if(!room)return error(res,403,'Acesso negado a esta conversa.');
+    if(!canPlayInRoom(room))return error(res,403,'O jogo está disponível somente em conversas Pessoal ou Família.');
+    return withPlayLock(async()=>{
+      db.neonGames ||= [];
+      const previous=neonRoomGame(roomId);
+      if(previous&&expireNeon(previous)){await save();neonEmit(previous);}
+      if(previous&&['pending','active'].includes(previous.status))
+        return error(res,409,'Há um convite ou uma partida de labirinto em andamento.');
+      db.neonGames=db.neonGames.filter(game=>['pending','active'].includes(game.status)||
+        Date.now()-new Date(game.finishedAt||game.updatedAt).getTime()<30*86400000);
+      const opponent=room.members.find(uid=>uid!==u.id);
+      const game=newNeonGame(id(),roomId,[u.id,opponent],u.id,crypto.randomInt(1,0x7fffffff));
+      db.neonGames.push(game);await save();neonEmit(game);
+      await sendMsg(room,u,'maze',{mazeId:game.id,text:'🎮 Convite para Labirinto Neon'});
+      return json(res,201,{game:neonView(game)});
+    });
+  }
+  const neonAction=/^\/api\/play\/neon\/([0-9a-f-]{36})\/(accept|decline|cancel|move|quit)$/.exec(p);
+  if(method==='POST'&&neonAction){
+    const gameId=neonAction[1],action=neonAction[2];
+    const input=action==='move'?JSON.parse((await body(req,512)).toString('utf8')):{};
+    return withPlayLock(async()=>{
+      const game=(db.neonGames||[]).find(item=>item.id===gameId);
+      const room=game&&member(u.id,game.roomId);
+      if(!room||!game.users.includes(u.id))return error(res,403,'Partida privada indisponível.');
+      if(!canPlayInRoom(room))return error(res,403,'Jogo indisponível neste ambiente.');
+      if(expireNeon(game)){await save();neonEmit(game);}
+      if(action==='accept'||action==='decline'){
+        if(game.status!=='pending')return error(res,409,'Convite não está pendente.');
+        if(game.inviterId===u.id)return error(res,403,'Somente o convidado pode aceitar ou recusar.');
+        if(action==='accept')beginNeonGame(game);
+        else game.status='declined';
+      }else if(action==='cancel'){
+        if(game.status!=='pending')return error(res,409,'Convite não está pendente.');
+        if(game.inviterId!==u.id)return error(res,403,'Somente quem convidou pode cancelar.');
+        game.status='canceled';
+      }else if(action==='quit'){
+        if(game.status!=='active')return error(res,409,'Partida não está ativa.');
+        game.status='abandoned';
+      }else{
+        const moved=neonMove(game,u.id,input.direction);
+        if(moved.error)return error(res,moved.code||409,moved.error);
+        if(!moved.changed)return json(res,200,{game:neonView(game)});
+      }
+      game.updatedAt=new Date().toISOString();
+      if(!['pending','active'].includes(game.status))game.finishedAt=game.updatedAt;
+      await save();neonEmit(game);
+      return json(res,200,{game:neonView(game)});
+    });
+  }
   if(method==='GET'&&/^\/api\/play\/room\/[0-9a-f-]{36}$/i.test(p)){
     const rid=p.split('/').pop(),room=member(u.id,rid);
     if(!room)return error(res,403,'Sem acesso a esta conversa.');
