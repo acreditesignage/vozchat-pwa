@@ -115,12 +115,9 @@ function createNeonPlay({api,toast,getMe,getRoom,onInvitation}){
     for(const [i,player] of (game.players||[]).entries()){
       const p=player.position;if(!p)continue;
       const x=OX+(p.x+.5)*CELL,y=OY+(p.y+.5)*CELL;
-      const glowing=game.powerUntil>=game.moves&&game.moves>0;
-      ctx.save();ctx.translate(x,y);ctx.shadowColor=svgColors[i];ctx.shadowBlur=glowing?20:10;
-      ctx.fillStyle=svgColors[i];ctx.beginPath();ctx.arc(0,0,10,0,Math.PI*2);ctx.fill();
-      ctx.shadowBlur=0;ctx.strokeStyle='#061328';ctx.lineWidth=3;
-      ctx.beginPath();ctx.moveTo(-3,-3);ctx.lineTo(3,0);ctx.lineTo(-3,3);ctx.stroke();
-      ctx.restore();
+      const art=window.VozChatArcadeArt?.drawHero;
+      if(art)art(ctx,x,y,12,svgColors[i],p.direction||'right',true);
+      else {ctx.fillStyle=svgColors[i];ctx.beginPath();ctx.arc(x,y,11,0,Math.PI*2);ctx.fill();}
     }
   }
   async function perform(action,direction){
