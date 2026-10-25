@@ -8,6 +8,7 @@ import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { TrackSource } from '@livekit/protocol';
 import { fileURLToPath } from 'node:url';
 import {newNeonGame,beginNeonGame,neonMove,neonTick,viewNeonGame} from './public/neon-maze-engine.js';
+import {createBombGame,startBombGame,moveBombGame,placeBomb,tickBombGame,bombView} from './public/bomb-arena-engine.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const STATIC = path.join(ROOT, 'public');
@@ -90,7 +91,7 @@ console.log('VozChat Web Push:',pushEnabled?'configured':'not_configured');
 const webPush = pushEnabled ? (await import('web-push')).default : null;
 if(webPush) webPush.setVapidDetails(process.env.VAPID_SUBJECT || 'https://vozchat-pwa.onrender.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 const pool = POSTGRES_URL ? new (await import('pg')).default.Pool({connectionString:POSTGRES_URL,max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000}) : null;
-let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], largeUploads: [], contactRequests: [], callHistory: [], games: [], neonGames: [], nextPublicId: '10', pushSubscriptions: [] };
+let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], largeUploads: [], contactRequests: [], callHistory: [], games: [], neonGames: [], bombGames: [], nextPublicId: '10', pushSubscriptions: [] };
 if(!pool) {
   try {db={...db,...JSON.parse(fs.readFileSync(DATA_FILE,'utf8'))};}
   catch(err){if(err.code!=='ENOENT')throw err;}
@@ -219,14 +220,14 @@ async function notifyMembers(room, sender, msg) {
   const recipients = new Set(room.members.filter(uid=>uid!==sender.id));
   if(!recipients.size)return;
   const payload=JSON.stringify({
-    title:['game','maze'].includes(msg.type)?'🎮 '+sender.name+' chamou você para jogar':room.directKey?sender.name:room.name,
-    kind:['game','maze'].includes(msg.type)?'game-invite':'message',
-    gameType:msg.type==='maze'?'neon':msg.type==='game'?'tic':null,
-    gameId:msg.mazeId||msg.gameId||null,
-    body: msg.type==='flowtalk'?'📻 Chamado no FlowTalk':msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':msg.type==='game'?'Convite para Jogo da Velha. Toque para aceitar.':msg.type==='maze'?'Convite para Labirinto Neon. Toque para aceitar.':'Nova mensagem',
+    title:['game','maze','bomb'].includes(msg.type)?'🎮 '+sender.name+' chamou você para jogar':room.directKey?sender.name:room.name,
+    kind:['game','maze','bomb'].includes(msg.type)?'game-invite':'message',
+    gameType:msg.type==='maze'?'neon':msg.type==='game'?'tic':msg.type==='bomb'?'bomb':null,
+    gameId:msg.mazeId||msg.gameId||msg.bombId||null,
+    body: msg.type==='flowtalk'?'📻 Chamado no FlowTalk':msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':msg.type==='game'?'Convite para Jogo da Velha. Toque para aceitar.':msg.type==='maze'?'Convite para Labirinto Neon. Toque para aceitar.':msg.type==='bomb'?'Convite para Arena Bomba. Toque para aceitar.':'Nova mensagem',
     roomId:room.id,
     url:'/app?open='+encodeURIComponent(room.id),
-    tag:['game','maze'].includes(msg.type)?'vozchat-game-'+(msg.mazeId||msg.gameId):'vozchat-'+room.id,
+    tag:['game','maze','bomb'].includes(msg.type)?'vozchat-game-'+(msg.mazeId||msg.gameId||msg.bombId):'vozchat-'+room.id,
     messageId:msg.id
   });
   const subscriptions=(db.pushSubscriptions||[]).map(record=>({record,recipientId:recipientForSubscription(record,[...recipients])})).filter(item=>item.recipientId);
@@ -372,6 +373,13 @@ function expirePlayGame(game){
   return true;
 }
 function emitPlayGame(game){push(game.users,'play-update',playView(game));}
+function bombRoomGame(roomId){return [...(db.bombGames||[])].reverse().find(g=>g.roomId===roomId)||null;}
+function bombEmit(game){push(game.users,'bomb-update',bombView(game,uid=>db.users.find(u=>u.id===uid)));}
+function expireBomb(game){
+ if(!game||!['pending','active'].includes(game.status))return false;
+ if(Date.now()-new Date(game.lastPlayerAt||game.createdAt).getTime()<24*3600000)return false;
+ game.status='expired';game.updatedAt=new Date().toISOString();game.finishedAt=game.updatedAt;return true;
+}
 function neonRoomGame(roomId){return [...(db.neonGames||[])].reverse().find(g=>g.roomId===roomId)||null;}
 function neonView(game){return viewNeonGame(game,uid=>db.users.find(u=>u.id===uid));}
 function neonEmit(game){push(game.users,'neon-update',neonView(game));}
@@ -402,6 +410,20 @@ const neonClock=setInterval(()=>{
 },900);
 neonClock.unref?.();
 
+const bombClock=setInterval(()=>{
+ void withPlayLock(async()=>{
+  let changed=false;
+  for(const game of db.bombGames||[]){
+   if(game.status!=='active')continue;
+   const room=db.rooms.find(r=>r.id===game.roomId);
+   if(!room||room.inactive){game.status='abandoned';game.finishedAt=new Date().toISOString();bombEmit(game);changed=true;continue;}
+   if(expireBomb(game)){bombEmit(game);changed=true;continue;}
+   if(!game.users.some(uid=>(clients.get(uid)?.size||0)>0))continue;
+   if(tickBombGame(game)){bombEmit(game);changed=true;}
+  }
+  if(changed)await save();
+ }).catch(err=>console.warn('Arena Bomba:',err?.message));
+},250);bombClock.unref?.();
 function groupMembers(r) {
   return r.members.map(uid=>db.users.find(u=>u.id===uid)).filter(Boolean)
     .map(u=>({name:u.name,publicId:u.publicId,isOwner:r.owner===u.id}));
@@ -534,7 +556,8 @@ async function api(req,res,url) {
   // Não reúne perfis Pessoal/Família/Profissional e não permite consultar terceiros.
   if(method==='GET'&&p==='/api/play/history'){
     const all=[...(db.games||[]).map(game=>({...game,kind:'tic-tac-toe'})),
-      ...(db.neonGames||[]).map(game=>({...game,kind:'neon-maze'}))];
+      ...(db.neonGames||[]).map(game=>({...game,kind:'neon-maze'})),
+      ...(db.bombGames||[]).map(game=>({...game,kind:'bomb'}))];
     const history=all.filter(game=>{
       const room=db.rooms.find(r=>r.id===game.roomId);
       return game.users?.includes(u.id)&&room?.directKey&&room.members.includes(u.id)&&
@@ -548,7 +571,7 @@ async function api(req,res,url) {
       const otherId=game.users.find(uid=>uid!==u.id);
       const contact=db.users.find(person=>person.id===otherId);
       return {id:game.id,roomId:game.roomId,kind:game.kind,
-        name:game.kind==='neon-maze'?'Labirinto Neon':'Jogo da Velha',
+        name:game.kind==='neon-maze'?'Labirinto Neon':game.kind==='bomb'?'Arena Bomba':'Jogo da Velha',
         status:game.status,createdAt:game.createdAt,updatedAt:game.updatedAt,
         finishedAt:game.finishedAt||null,winner:game.winner||null,
         score:game.kind==='neon-maze'?game.score:null,
@@ -559,7 +582,8 @@ async function api(req,res,url) {
   }
   if(method==='GET'&&p==='/api/play/invites'){
     const invitations=[...(db.games||[]).map(g=>({...g,kind:'tic'})),
-      ...(db.neonGames||[]).map(g=>({...g,kind:'neon'}))]
+      ...(db.neonGames||[]).map(g=>({...g,kind:'neon'})),
+      ...(db.bombGames||[]).map(g=>({...g,kind:'bomb'}))]
       .filter(g=>g.status==='pending'&&g.inviterId!==u.id&&g.users?.includes(u.id)
         &&Date.now()-new Date(g.createdAt).getTime()<24*3600000
         &&canPlayInRoom(member(u.id,g.roomId)))
@@ -568,6 +592,59 @@ async function api(req,res,url) {
         inviterName:db.users.find(person=>person.id===g.inviterId)?.name||'Contato',
         createdAt:g.createdAt}));
     return json(res,200,{invitations});
+  }
+  if(method==='GET'&&/^\/api\/play\/bomb\/room\/[0-9a-f-]{36}$/i.test(p)){
+   const rid=p.split('/').pop(),room=member(u.id,rid);
+   if(!canPlayInRoom(room))return error(res,403,'Jogo somente entre contatos Pessoal ou Família.');
+   const game=bombRoomGame(rid);
+   if(game&&expireBomb(game)){await save();bombEmit(game);}
+   return json(res,200,{game:game?bombView(game,uid=>db.users.find(person=>person.id===uid)):null});
+  }
+  if(method==='POST'&&p==='/api/play/bomb/invite'){
+   const input=JSON.parse((await body(req,1024)).toString('utf8'));
+   const rid=String(input.roomId||''),room=member(u.id,rid);
+   if(!canPlayInRoom(room))return error(res,403,'Jogo somente entre contatos Pessoal ou Família.');
+   return withPlayLock(async()=>{
+    db.bombGames||=[];
+    const latest=bombRoomGame(rid);
+    if(latest&&expireBomb(latest)){await save();bombEmit(latest);}
+    if(latest&&['pending','active'].includes(latest.status))return error(res,409,'Já existe convite ou partida de Arena Bomba.');
+    const other=room.members.find(uid=>uid!==u.id);
+    const game=createBombGame(id(),rid,[u.id,other],u.id,crypto.randomInt(1,0x7fffffff));
+    db.bombGames.push(game);await save();bombEmit(game);
+    push([other],'play-invite',{id:game.id,roomId:rid,kind:'bomb',inviterName:u.name,createdAt:game.createdAt});
+    await sendMsg(room,u,'bomb',{bombId:game.id,text:'🎮 Convite para Arena Bomba'});
+    return json(res,201,{game:bombView(game,uid=>db.users.find(person=>person.id===uid))});
+   });
+  }
+  const bombAction=/^\/api\/play\/bomb\/([0-9a-f-]{36})\/(accept|decline|cancel|move|place|quit)$/.exec(p);
+  if(method==='POST'&&bombAction){
+   const gameId=bombAction[1],action=bombAction[2];
+   const input=action==='move'?JSON.parse((await body(req,512)).toString('utf8')):{};
+   return withPlayLock(async()=>{
+    const game=(db.bombGames||[]).find(g=>g.id===gameId),room=game&&member(u.id,game.roomId);
+    if(!canPlayInRoom(room)||!game.users.includes(u.id))return error(res,403,'Acesso privado negado.');
+    if(expireBomb(game)){await save();bombEmit(game);}
+    if(action==='accept'||action==='decline'){
+     if(game.status!=='pending')return error(res,409,'Convite já respondido.');
+     if(game.inviterId===u.id)return error(res,403,'Somente o convidado responde.');
+     if(action==='accept')startBombGame(game);else game.status='declined';
+    }else if(action==='cancel'){
+     if(game.status!=='pending'||game.inviterId!==u.id)return error(res,403,'Somente quem convidou pode cancelar.');
+     game.status='canceled';
+    }else if(action==='quit'){
+     if(game.status!=='active')return error(res,409,'Partida já terminou.');
+     game.status='abandoned';game.winner=game.users.find(uid=>uid!==u.id);
+    }else{
+     const result=action==='move'?moveBombGame(game,u.id,input.direction):placeBomb(game,u.id);
+     if(result.error)return error(res,result.code||409,result.error);
+     if(!result.changed)return json(res,200,{game:bombView(game,uid=>db.users.find(person=>person.id===uid))});
+    }
+    game.updatedAt=new Date().toISOString();
+    if(!['pending','active'].includes(game.status))game.finishedAt=game.updatedAt;
+    await save();bombEmit(game);
+    return json(res,200,{game:bombView(game,uid=>db.users.find(person=>person.id===uid))});
+   });
   }
   if(method==='GET'&&/^\/api\/play\/neon\/room\/[0-9a-f-]{36}$/i.test(p)){
     const roomId=p.split('/').pop(),room=member(u.id,roomId);
