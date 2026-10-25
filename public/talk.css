@@ -36,3 +36,28 @@ button:disabled{opacity:.5;cursor:not-allowed}button{cursor:pointer}[hidden]{dis
 @media(max-width:390px){.flowtalk-hold{width:175px}.header{padding-bottom:15px}.intro{margin:9px auto 13px}}
 
 .install-guide-help{border:0;background:transparent;color:#5c4dc7;font-size:13px;font-weight:700;padding:10px 14px;min-height:44px;text-decoration:underline;text-underline-offset:3px}
+
+/* FlowTalk mantém a identidade azul e acompanha o tema da aplicação. */
+html{background:#f4f8fe;color:#162b48}
+body{background:linear-gradient(150deg,#eef6ff 0,#fff 65%,#f2f8ff)}
+.brand small,.intro p,.hint,.tip,footer{color:#72849c}
+.card{background:#fff;border-color:#e3ecf9;box-shadow:0 10px 38px #14528b0d}
+.channel-card select{background:#f0f6ff;border-color:#d8e6f8;color:#213956}
+.channel-card>label{color:#526d90}
+.logo,.primary,.flowtalk-hold{background:linear-gradient(145deg,#30a3ff,#116be8)}
+.primary.flowtalk-active{background:#1459b8}
+.flowtalk-indicator strong,.chat-link,.install-guide-help{color:#1875e4}
+.flowtalk-indicator span{color:#516b89}
+.secondary{background:#f0f6ff;border-color:#d8e8fa;color:#2769bb}
+html[data-theme="dark"]{background:#061321;color:#eef5ff}
+html[data-theme="dark"] body{background:radial-gradient(ellipse at top,#12345a 0,#071727 50%,#050f1b 100%);color:#eef5ff}
+html[data-theme="dark"] .card{background:#10223a;border-color:#203c5c;box-shadow:0 15px 40px #0003}
+html[data-theme="dark"] .channel-card select,html[data-theme="dark"] #loginPanel input{background:#142d4a;border-color:#264666;color:#f0f7ff}
+html[data-theme="dark"] .channel-card>label,html[data-theme="dark"] .brand small,
+html[data-theme="dark"] .intro p,html[data-theme="dark"] .hint,
+html[data-theme="dark"] .tip,html[data-theme="dark"] footer{color:#9ab0cb}
+html[data-theme="dark"] .chat-link,html[data-theme="dark"] .install-guide-help,html[data-theme="dark"] .flowtalk-indicator strong{color:#69b3ff}
+html[data-theme="dark"] .flowtalk-indicator span{color:#c8dcf6}
+html[data-theme="dark"] .secondary{background:#193656;border-color:#2d5279;color:#e7f4ff}
+html[data-theme="dark"] #loginPanel p{color:#97abc7}
+html[data-theme="dark"] .flowtalk-stop{background:#3b182b;border-color:#e65b72;color:#ffdce4}

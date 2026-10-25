@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#111827"><meta name="description" content="VozChat: conversas e mensagens de voz, em qualquer dispositivo."><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="/icons/icon.svg"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/install-guide.css"><title>VozChat — Conversas e áudios</title></head>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f7faff"><meta name="description" content="VozChat: conversas e mensagens de voz, em qualquer dispositivo."><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="/icons/icon.svg"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/install-guide.css"><link rel="stylesheet" href="/premium.css"><title>VozChat — Conversas e áudios</title></head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="offline" class="offline" hidden>Você está offline. Conecte-se para enviar mensagens.</div>
@@ -12,13 +12,33 @@
   </section>
   <main id="app" class="app" hidden>
     <aside class="sidebar" id="sidebar">
-      <div class="sidebar-head"><div class="identity"><div class="small-logo">◖◗</div><div><h1>VozChat<span>.</span></h1><p>Mensagens e voz</p></div></div><div class="header-actions"><button class="icon-button" type="button" id="settingsButton" title="Configurações" aria-label="Abrir configurações">⚙</button><button class="icon-button" type="button" id="notificationsButton" title="Notificações: som e vibração" aria-label="Configurar notificações">🔔</button><button class="icon-button" title="Instalar aplicativo" id="installButton" aria-label="Instalar aplicativo">⬇</button></div></div>
-      <div class="sidebar-title"><div><div class="eyebrow">SUAS CONVERSAS</div><h2>Mensagens</h2></div><div class="contact-actions"><button class="add-id-button" id="newDirect" type="button" title="Adicionar pessoa por ID" aria-label="Adicionar pessoa por ID">+ ID</button><button class="new-button" id="newRoom" type="button" title="Criar grupo" aria-label="Criar grupo">+</button></div></div>
+      <div class="sidebar-head"><div class="identity"><div class="small-logo" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2.6"><path d="M2 15v3M7 10v13M12 5v22M17 2v28M22 8v16M27 12v8M31 15v3"/></svg></div><div><h1>VozChat<span>.</span></h1><p>Mensagens e voz</p></div></div><div class="header-actions"><button class="icon-button" type="button" id="settingsButton" title="Configurações" aria-label="Abrir configurações">⚙</button><button class="icon-button" type="button" id="notificationsButton" title="Notificações: som e vibração" aria-label="Configurar notificações">🔔</button><button class="icon-button" title="Instalar aplicativo" id="installButton" aria-label="Instalar aplicativo">⬇</button></div></div>
+      <div class="sidebar-title"><div><div class="eyebrow">SUAS CONVERSAS</div><h2 id="listViewTitle">Conversas</h2></div><div class="contact-actions"><button class="add-id-button" id="newDirect" type="button" title="Adicionar pessoa por ID" aria-label="Adicionar pessoa por ID">+ ID</button><button class="new-button" id="newRoom" type="button" title="Criar grupo" aria-label="Criar grupo">+</button></div></div>
       <div class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Buscar conversa" aria-label="Buscar conversa"></div>
       <a href="/talk" class="quick-talk-link" aria-label="Abrir FlowTalk"><span class="quick-talk-orb" aria-hidden="true"></span><span>FlowTalk</span><span class="quick-talk-arrow" aria-hidden="true">→</span></a>
       <div class="contact-request-entry"><button id="pendingContactsButton" type="button" class="pending-contacts-button"> <span>Solicitações de contato</span><span id="pendingContactsCount" class="pending-count" hidden>0</span></button></div>
+      <div class="list-segments" id="listSegments" role="group" aria-label="Filtrar conversas">
+        <button type="button" class="list-filter" data-list-filter="all" aria-pressed="true">Todos</button>
+        <button type="button" class="list-filter" data-list-filter="favorites" aria-pressed="false">★ Favoritos</button>
+        <button type="button" class="list-filter" data-list-filter="groups" aria-pressed="false">Grupos</button>
+        <button type="button" class="list-filter" data-list-filter="audio" aria-pressed="false">Áudios</button>
+      </div>
       <div id="roomList" class="room-list"></div>
       <footer class="sidebar-foot"><button class="user-avatar profile-avatar-button" id="meAvatar" type="button" aria-label="Editar foto do meu perfil" title="Toque para alterar sua foto">V</button><div class="me-info"><strong id="meName">Você</strong><button id="copyMyId" class="copy-id-button" type="button" title="Copiar meu ID" aria-label="Copiar meu ID"><span id="meUsername">ID --</span> <span aria-hidden="true">⧉</span></button></div><button id="logout" class="icon-button" aria-label="Sair da conta" title="Sair da conta">↪</button></footer>
+      <nav class="mobile-tabbar" aria-label="Navegação principal">
+        <button type="button" class="mobile-tab" data-mobile-tab="chats" aria-current="page" aria-label="Conversas">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-4.3-1.2L3 20l1.2-4.3A8.5 8.5 0 1 1 20 11.5Z"/></svg><span>Conversas</span>
+        </button>
+        <button type="button" class="mobile-tab" data-mobile-tab="contacts" aria-label="Contatos">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/></svg><span>Contatos</span>
+        </button>
+        <button type="button" class="mobile-tab" data-mobile-tab="calls" aria-label="Chamadas">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h4l1 5-2 2a16 16 0 0 0 5 5l2-2 5 1v4a3 3 0 0 1-3 3C10 21 3 14 3 6a3 3 0 0 1 3-3Z"/></svg><span>Chamadas</span>
+        </button>
+        <button type="button" class="mobile-tab" data-mobile-tab="settings" aria-label="Configurações">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1-1.8 1.8-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V20h-2.6v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1-1.8-1.8.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H6v-2.6h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1 1.8-1.8.1.1a1.6 1.6 0 0 0 1.8.3 1.6 1.6 0 0 0 1-1.5V4h2.6v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1 1.8 1.8-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1h.2V13h-.2a1.6 1.6 0 0 0-1.5 1Z"/></svg><span>Config.</span>
+        </button>
+      </nav>
     </aside>
     <section class="chat" id="chat">
       <div class="empty-chat" id="emptyChat"><div class="empty-symbol"><span>◖◗</span><i>✳</i></div><h2>Suas conversas começam aqui</h2><p>Adicione alguém pelo ID para conversar diretamente, ou crie um grupo e compartilhe o convite.</p><div class="empty-actions"><button class="primary inline" id="emptyContact" type="button">+ Adicionar por ID</button><button class="secondary inline" id="emptyCreate" type="button">Criar grupo</button></div><div class="feature-row"><span>✦ Mensagens em tempo real</span><span>◉ Áudios pelo microfone</span><span>↗ Convites privados</span></div></div>
@@ -34,7 +54,7 @@
           <p class="flowtalk-disclaimer">Sua voz sai enquanto o botão estiver pressionado. Não grava nem fica no histórico. Mantenha o app aberto.</p>
         </div>
         <div id="messages" class="messages" aria-live="polite" aria-label="Mensagens da conversa"></div>
-        <div class="composer-zone"><div class="attachment-picker" id="attachmentPicker" hidden><button type="button" data-pick="camera">📷 <span>Tirar foto</span></button><button type="button" data-pick="photo">🖼️ <span>Fotos</span></button><button type="button" data-pick="video">🎬 <span>Vídeo</span></button><button type="button" data-pick="file">📎 <span>Arquivo</span></button></div><div class="emoji-picker" id="emojiPicker" role="group" aria-label="Escolher emoji" hidden></div><input id="cameraInput" type="file" accept="image/*" capture="environment" hidden><input id="photoInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif" multiple hidden><input id="videoInput" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v,video/3gpp" multiple hidden><input id="fileInput" type="file" accept=".pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z,.rar,.odt,.ods,.odp,.dcm,.dwg,.dxf,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.mp4,.mov,.webm,.m4v,.3gp" multiple hidden><div class="recording" id="recording" hidden><div class="record-dot"></div><span id="recordTime">Gravando · 0:00</span><button id="cancelAudio" type="button" class="cancel-button">Cancelar</button></div><form id="composer" class="composer"><button id="attachButton" type="button" class="tool-button" aria-label="Anexar foto, vídeo ou arquivo" title="Anexar foto, vídeo ou arquivo" aria-expanded="false">+</button><button id="emojiButton" type="button" class="tool-button emoji-button" aria-label="Escolher emoji" title="Emojis" aria-expanded="false">☺</button><textarea id="msgInput" rows="1" placeholder="Escreva uma mensagem..." aria-label="Mensagem" maxlength="2000"></textarea><button id="micButton" type="button" title="Gravar mensagem de voz" aria-label="Iniciar gravação" class="mic-button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8"/></svg></button><button class="send-button" aria-label="Enviar mensagem" title="Enviar mensagem" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button></form><small class="composer-note">Envie fotos, vídeos ou arquivos de até 25 MB. Microfone: toque para gravar e novamente para enviar.</small></div>
+        <div class="composer-zone"><div class="attachment-picker" id="attachmentPicker" hidden><button type="button" data-pick="camera">📷 <span>Tirar foto</span></button><button type="button" data-pick="photo">🖼️ <span>Fotos</span></button><button type="button" data-pick="video">🎬 <span>Vídeo</span></button><button type="button" data-pick="file">📎 <span>Arquivo</span></button></div><div class="emoji-picker" id="emojiPicker" role="group" aria-label="Escolher emoji" hidden></div><input id="cameraInput" type="file" accept="image/*" capture="environment" hidden><input id="photoInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif" multiple hidden><input id="videoInput" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v,video/3gpp" multiple hidden><input id="fileInput" type="file" accept=".pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.7z,.rar,.odt,.ods,.odp,.dcm,.dwg,.dxf,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.mp4,.mov,.webm,.m4v,.3gp" multiple hidden><div class="recording" id="recording" hidden><div class="record-dot"></div><span id="recordTime">Gravando · 0:00</span><button id="cancelAudio" type="button" class="cancel-button">Cancelar</button></div><form id="composer" class="composer"><button id="attachButton" type="button" class="tool-button" aria-label="Anexar foto, vídeo ou arquivo" title="Anexar foto, vídeo ou arquivo" aria-expanded="false">+</button><button id="emojiButton" type="button" class="tool-button emoji-button" aria-label="Escolher emoji" title="Emojis" aria-expanded="false">☺</button><textarea id="msgInput" rows="1" placeholder="Escreva uma mensagem..." aria-label="Mensagem" maxlength="2000"></textarea><button id="micButton" type="button" title="Gravar mensagem de voz" aria-label="Iniciar gravação" class="mic-button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8"/></svg></button><button class="send-button" aria-label="Enviar mensagem" title="Enviar mensagem" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button></form><small class="composer-note">Envie fotos, vídeos ou arquivos de até 1 GB. Microfone: toque para gravar e novamente para enviar.</small></div>
       </div>
     </section>
   </main>
@@ -80,6 +100,11 @@
       <p>Controle os avisos, o som e a vibração.</p><button id="settingsNotifications" type="button" class="secondary notification-secondary">Configurar notificações</button>
     </div>
     <div class="settings-section"><strong>Aparência</strong>
+      <div class="theme-options" role="group" aria-label="Tema do aplicativo">
+          <button type="button" class="theme-choice" data-theme-value="light" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.8 4.8l1.5 1.5m11.4 11.4 1.5 1.5m0-14.4-1.5 1.5M6.3 17.7l-1.5 1.5"/></svg>Claro</button>
+          <button type="button" class="theme-choice" data-theme-value="dark" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M20.5 15.5A9 9 0 0 1 8.5 3.5a9 9 0 1 0 12 12Z"/></svg>Escuro</button>
+          <button type="button" class="theme-choice" data-theme-value="auto" aria-pressed="true"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="15" rx="2"/><path d="M8 22h8m-4-4v4"/></svg>Automático</button>
+        </div><p id="themeCurrentLabel" class="theme-info">Acompanha o tema do iPhone ou Android</p>
       <label class="settings-switch"><span>Conversas compactas <small>Exibir mais contatos na tela</small></span><input id="settingsCompact" type="checkbox"></label>
     </div>
     <div class="settings-section"><strong>Transferência de arquivos</strong>
@@ -103,7 +128,7 @@
   </dialog>
   <section id="callOverlay" class="call-overlay" role="dialog" aria-modal="true" aria-labelledby="callTitle" hidden>
     <div class="call-sheet">
-      <div class="call-heading"><span class="call-avatar" aria-hidden="true">◉</span>
+      <div class="call-heading"><div id="callHeroAvatar" class="call-hero-avatar" aria-hidden="true">V</div>
         <div><h2 id="callTitle">Chamada de áudio</h2><p id="callStatus" role="status" aria-live="polite">Chamando...</p></div>
       </div>
       <div id="callRemoteVideos" class="call-remote-videos"></div>
@@ -136,6 +161,7 @@
       <p class="install-guide-note">É opcional e você pode continuar usando pelo navegador.</p>
     </section>
   </div>
+  <script defer src="/theme.js"></script>
   <script defer src="/install-guide.js"></script>
   <script defer src="/call-ringtone.js"></script>
   <script type="module" src="/app.js"></script>

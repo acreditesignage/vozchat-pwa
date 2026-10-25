@@ -6,6 +6,7 @@ const talkParam = new URLSearchParams(location.search).get('talk');
 const callParam = new URLSearchParams(location.search).get('call');
 let currentCall=null,callEngine=null,joiningCall=false,callAttempt=0;
 let pendingContactRequests=[];
+let uiListMode='chats',uiListFilter='all',favorites=new Set();
 const avatar = name => (name||'?').slice(0,1).toUpperCase();
 const time = iso => new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 const day = iso => new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
@@ -17,7 +18,7 @@ function sortRooms() {rooms.sort((a,b)=>new Date(b.last?.createdAt||b.createdAt)
 function authMode(register) {isRegister=register;$('#nameField').hidden=!register;$('#realName').required=register;$('#usernameField').hidden=register;$('#username').required=!register;$('#authDescription').textContent=register?'Escolha como quer ser chamado. Seu ID exclusivo será criado automaticamente.':'Entre com seu ID numérico (ou usuário antigo) e sua senha.';$('#authTitle').textContent=register?'Crie sua conta':'Entre na sua conta';$('#authSubmit').innerHTML=register?'Criar conta <span>→</span>':'Entrar <span>→</span>';$('#authSwitchLabel').firstChild.textContent=register?'Já possui uma conta? ':'Ainda não tem conta? ';$('#authSwitch').textContent=register?'Entrar':'Criar conta';$('#password').autocomplete=register?'new-password':'current-password';}
 $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
 $('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#authSubmit');btn.disabled=true;try {const creating=isRegister;const result=await api(creating?'/api/register':'/api/login',{method:'POST',data:creating?{name:$('#realName').value,password:$('#password').value}:{username:$('#username').value,password:$('#password').value}});$('#password').value='';await start();if(creating&&result.user?.publicId){$('#welcomePublicId').textContent=result.user.publicId;openDialog('welcomeDialog');}}catch(err){toast(err.message);}finally{btn.disabled=false;}});
-async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
+async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();loadFavoriteRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
 function paintAvatar(element,name,url){
   element.replaceChildren();
   element.textContent=avatar(name);
@@ -37,7 +38,113 @@ function paintAvatar(element,name,url){
   img.src=url;
 }
 function upsertRoom(r) {let idx=rooms.findIndex(x=>x.id===r.id);if(idx<0)rooms.push(r);else rooms[idx]={...rooms[idx],...r};sortRooms();renderRooms();if(current===r.id)renderHeader();}
-function renderRooms(){const list=$('#roomList');list.replaceChildren();const term=$('#search').value.trim().toLowerCase();const filtered=rooms.filter(x=>x.name.toLowerCase().includes(term)||String(x.peerId||'').includes(term));if(!filtered.length){const el=document.createElement('p');el.className='list-empty';el.textContent=term?'Nenhuma conversa encontrada.':'Nenhuma conversa ainda. Toque em + para criar a primeira.';list.append(el);return;}for(const room of filtered){const btn=document.createElement('button');btn.type='button';btn.className='room-item'+(room.id===current?' active':'');const ic=document.createElement('div');ic.className='room-icon';paintAvatar(ic,room.name,room.avatarUrl);const info=document.createElement('div');info.className='room-info';const top=document.createElement('div');top.className='room-name';const title=document.createElement('strong');title.textContent=room.name;const small=document.createElement('small');small.textContent=room.last?time(room.last.createdAt):'';top.append(title,small);const preview=document.createElement('div');preview.className='room-preview';preview.textContent=room.last?`${room.last.senderName}: ${room.last.type==='flowtalk'?'📻 FlowTalk':room.last.type==='audio'?'🎤 Mensagem de voz':({image:'📷 Foto',video:'🎬 Vídeo',file:'📎 Arquivo'}[room.last.type]||room.last.text)}`:'Conversa criada · toque para abrir';info.append(top,preview);btn.append(ic,info);btn.addEventListener('click',()=>openRoom(room.id));list.append(btn);}}
+const PHONE_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h4l1 5-2 2a16 16 0 0 0 5 5l2-2 5 1v4a3 3 0 0 1-3-3C10 21 3 14 3 6a3 3 0 0 1 3-3Z"/></svg>';
+const VIDEO_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="14" height="14" rx="3"/><path d="m16 10 6-4v12l-6-4"/></svg>';
+function loadFavoriteRooms(){
+  try{const value=JSON.parse(localStorage.getItem('vozchat_favorite_rooms_'+me?.id)||'[]');favorites=new Set(Array.isArray(value)?value:[]);}
+  catch{favorites=new Set();}
+}
+function setRoomFavorite(roomId,enabled){
+  if(enabled)favorites.add(roomId);else favorites.delete(roomId);
+  try{localStorage.setItem('vozchat_favorite_rooms_'+me?.id,JSON.stringify([...favorites]));}catch{}
+  renderRooms();
+}
+function switchMobileTab(mode){
+  if(mode==='settings'){$('#settingsButton').click();return;}
+  if(!['chats','contacts','calls'].includes(mode))return;
+  uiListMode=mode;
+  $('#app').dataset.listMode=mode;
+  $('#listViewTitle').textContent=mode==='contacts'?'Contatos':mode==='calls'?'Chamadas':'Conversas';
+  $('#search').placeholder=mode==='contacts'?'Buscar contato':mode==='calls'?'Buscar alguém para ligar':'Buscar conversa';
+  for(const button of document.querySelectorAll('[data-mobile-tab]')){
+    if(button.dataset.mobileTab===mode)button.setAttribute('aria-current','page');
+    else button.removeAttribute('aria-current');
+  }
+  renderRooms();
+}
+function setConversationFilter(filter){
+  if(!['all','favorites','groups','audio'].includes(filter))return;
+  uiListFilter=filter;
+  for(const button of document.querySelectorAll('[data-list-filter]')){
+    button.setAttribute('aria-pressed',String(button.dataset.listFilter===filter));
+  }
+  renderRooms();
+}
+function callContactDirectly(roomId,kind){
+  if(currentCall){toast('Encerre a chamada atual antes de ligar novamente.');return;}
+  void (async()=>{
+    try{await openRoom(roomId);await startCall(kind);}
+    catch(err){toast(err?.message||'Não foi possível iniciar a chamada.');}
+  })();
+}
+function renderRooms(){
+  const list=$('#roomList');list.replaceChildren();
+  const term=$('#search').value.trim().toLowerCase();
+  const filtered=rooms.filter(room=>{
+    if(!room.name.toLowerCase().includes(term)&&!String(room.peerId||'').includes(term))return false;
+    if(uiListMode==='contacts'||uiListMode==='calls')return !!room.isDirect;
+    if(uiListFilter==='favorites')return favorites.has(room.id);
+    if(uiListFilter==='groups')return !room.isDirect;
+    if(uiListFilter==='audio')return ['audio','flowtalk'].includes(room.last?.type);
+    return true;
+  });
+  if(!filtered.length){
+    const el=document.createElement('p');el.className='list-empty';
+    el.textContent=term?'Nenhum resultado encontrado.':
+      uiListMode==='contacts'?'Nenhum contato aprovado ainda. Toque em + ID para convidar.':
+      uiListMode==='calls'?'Adicione e aprove um contato para fazer chamadas de áudio ou vídeo.':
+      uiListFilter==='favorites'?'Toque na estrela de uma conversa para marcar como favorita.':
+      uiListFilter==='groups'?'Nenhum grupo ainda. Toque em + para criar.':
+      uiListFilter==='audio'?'Nenhuma mensagem de voz recente.':
+      'Nenhuma conversa ainda. Toque em + para criar a primeira.';
+    list.append(el);return;
+  }
+  for(const room of filtered){
+    const line=document.createElement('div');line.className='room-line';
+    const btn=document.createElement('button');btn.type='button';
+    btn.className='room-item'+(room.id===current?' active':'');
+    const icon=document.createElement('div');icon.className='room-icon';
+    paintAvatar(icon,room.name,room.avatarUrl);
+    const info=document.createElement('div');info.className='room-info';
+    const titleRow=document.createElement('div');titleRow.className='room-name';
+    const title=document.createElement('strong');title.textContent=room.name;
+    const last=document.createElement('small');last.textContent=room.last?time(room.last.createdAt):'';
+    titleRow.append(title,last);
+    const preview=document.createElement('div');preview.className='room-preview';
+    preview.textContent=uiListMode==='calls'?'Toque em telefone ou vídeo para ligar':
+      room.last?room.last.senderName+': '+(room.last.type==='flowtalk'?'FlowTalk':
+      room.last.type==='audio'?'🎤 Mensagem de voz':
+      ({image:'📷 Foto',video:'🎬 Vídeo',file:'📎 Arquivo'}[room.last.type]||room.last.text)):
+      'Conversa privada · toque para abrir';
+    info.append(titleRow,preview);btn.append(icon,info);
+    btn.addEventListener('click',()=>void openRoom(room.id));
+    line.append(btn);
+    if(uiListMode==='chats'){
+      const favorite=document.createElement('button');
+      favorite.type='button';favorite.className='room-favorite';
+      favorite.setAttribute('aria-label',favorites.has(room.id)?'Remover dos favoritos':'Adicionar aos favoritos');
+      favorite.setAttribute('aria-pressed',String(favorites.has(room.id)));
+      favorite.textContent=favorites.has(room.id)?'★':'☆';
+      favorite.addEventListener('click',()=>setRoomFavorite(room.id,!favorites.has(room.id)));
+      line.append(favorite);
+    }else if(room.isDirect){
+      for(const [kind,svg] of [['audio',PHONE_ICON],['video',VIDEO_ICON]]){
+        const call=document.createElement('button');call.type='button';
+        call.className='room-quick-call';call.innerHTML=svg;
+        call.setAttribute('aria-label',(kind==='audio'?'Ligar por áudio para ':'Iniciar vídeo com ')+room.name);
+        call.addEventListener('click',()=>callContactDirectly(room.id,kind));
+        line.append(call);
+      }
+    }
+    list.append(line);
+  }
+}
+for(const button of document.querySelectorAll('[data-mobile-tab]')){
+  button.addEventListener('click',()=>switchMobileTab(button.dataset.mobileTab));
+}
+for(const button of document.querySelectorAll('[data-list-filter]')){
+  button.addEventListener('click',()=>setConversationFilter(button.dataset.listFilter));
+}
 $('#search').addEventListener('input',renderRooms);
 // Preferências locais: alertas durante a conversa e notificações do sistema.
 const SETTINGS_KEY='vozchat_notification_settings_v1';
@@ -902,6 +1009,7 @@ function presentCall(call,incoming){
   const name=room?.name||call.callerName||'Contato';
   $('#callOverlay').hidden=false;
   $('#callTitle').textContent=(call.kind==='video'?'Vídeo · ':'Áudio · ')+name;
+  paintAvatar($('#callHeroAvatar'),name,room?.avatarUrl);
   $('#callStatus').textContent=incoming?'Chamada recebida de '+call.callerName:'Chamando…';
   $('#callIncomingActions').hidden=!incoming;
   $('#callActiveActions').hidden=incoming;
