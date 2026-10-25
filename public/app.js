@@ -5,6 +5,7 @@ const openParam = new URLSearchParams(location.search).get('open');
 const talkParam = new URLSearchParams(location.search).get('talk');
 const callParam = new URLSearchParams(location.search).get('call');
 let currentCall=null,callEngine=null,joiningCall=false,callAttempt=0;
+let pendingContactRequests=[];
 const avatar = name => (name||'?').slice(0,1).toUpperCase();
 const time = iso => new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 const day = iso => new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
@@ -16,9 +17,17 @@ function sortRooms() {rooms.sort((a,b)=>new Date(b.last?.createdAt||b.createdAt)
 function authMode(register) {isRegister=register;$('#nameField').hidden=!register;$('#realName').required=register;$('#usernameField').hidden=register;$('#username').required=!register;$('#authDescription').textContent=register?'Escolha como quer ser chamado. Seu ID exclusivo será criado automaticamente.':'Entre com seu ID numérico (ou usuário antigo) e sua senha.';$('#authTitle').textContent=register?'Crie sua conta':'Entre na sua conta';$('#authSubmit').innerHTML=register?'Criar conta <span>→</span>':'Entrar <span>→</span>';$('#authSwitchLabel').firstChild.textContent=register?'Já possui uma conta? ':'Ainda não tem conta? ';$('#authSwitch').textContent=register?'Entrar':'Criar conta';$('#password').autocomplete=register?'new-password':'current-password';}
 $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
 $('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#authSubmit');btn.disabled=true;try {const creating=isRegister;const result=await api(creating?'/api/register':'/api/login',{method:'POST',data:creating?{name:$('#realName').value,password:$('#password').value}:{username:$('#username').value,password:$('#password').value}});$('#password').value='';await start();if(creating&&result.user?.publicId){$('#welcomePublicId').textContent=result.user.publicId;openDialog('welcomeDialog');}}catch(err){toast(err.message);}finally{btn.disabled=false;}});
-async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);$('#meAvatar').textContent=avatar(me.name);renderRooms();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
+async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
+function paintAvatar(element,name,url){
+  element.replaceChildren();element.textContent=avatar(name);
+  if(!url)return;
+  const img=document.createElement('img');
+  img.src=url;img.alt='';img.loading='lazy';img.decoding='async';img.className='avatar-image';
+  img.addEventListener('error',()=>img.remove(),{once:true});
+  element.replaceChildren(img);
+}
 function upsertRoom(r) {let idx=rooms.findIndex(x=>x.id===r.id);if(idx<0)rooms.push(r);else rooms[idx]={...rooms[idx],...r};sortRooms();renderRooms();if(current===r.id)renderHeader();}
-function renderRooms(){const list=$('#roomList');list.replaceChildren();const term=$('#search').value.trim().toLowerCase();const filtered=rooms.filter(x=>x.name.toLowerCase().includes(term)||String(x.peerId||'').includes(term));if(!filtered.length){const el=document.createElement('p');el.className='list-empty';el.textContent=term?'Nenhuma conversa encontrada.':'Nenhuma conversa ainda. Toque em + para criar a primeira.';list.append(el);return;}for(const room of filtered){const btn=document.createElement('button');btn.type='button';btn.className='room-item'+(room.id===current?' active':'');const ic=document.createElement('div');ic.className='room-icon';ic.textContent=avatar(room.name);const info=document.createElement('div');info.className='room-info';const top=document.createElement('div');top.className='room-name';const title=document.createElement('strong');title.textContent=room.name;const small=document.createElement('small');small.textContent=room.last?time(room.last.createdAt):'';top.append(title,small);const preview=document.createElement('div');preview.className='room-preview';preview.textContent=room.last?`${room.last.senderName}: ${room.last.type==='flowtalk'?'📻 FlowTalk':room.last.type==='audio'?'🎤 Mensagem de voz':({image:'📷 Foto',video:'🎬 Vídeo',file:'📎 Arquivo'}[room.last.type]||room.last.text)}`:'Conversa criada · toque para abrir';info.append(top,preview);btn.append(ic,info);btn.addEventListener('click',()=>openRoom(room.id));list.append(btn);}}
+function renderRooms(){const list=$('#roomList');list.replaceChildren();const term=$('#search').value.trim().toLowerCase();const filtered=rooms.filter(x=>x.name.toLowerCase().includes(term)||String(x.peerId||'').includes(term));if(!filtered.length){const el=document.createElement('p');el.className='list-empty';el.textContent=term?'Nenhuma conversa encontrada.':'Nenhuma conversa ainda. Toque em + para criar a primeira.';list.append(el);return;}for(const room of filtered){const btn=document.createElement('button');btn.type='button';btn.className='room-item'+(room.id===current?' active':'');const ic=document.createElement('div');ic.className='room-icon';paintAvatar(ic,room.name,room.avatarUrl);const info=document.createElement('div');info.className='room-info';const top=document.createElement('div');top.className='room-name';const title=document.createElement('strong');title.textContent=room.name;const small=document.createElement('small');small.textContent=room.last?time(room.last.createdAt):'';top.append(title,small);const preview=document.createElement('div');preview.className='room-preview';preview.textContent=room.last?`${room.last.senderName}: ${room.last.type==='flowtalk'?'📻 FlowTalk':room.last.type==='audio'?'🎤 Mensagem de voz':({image:'📷 Foto',video:'🎬 Vídeo',file:'📎 Arquivo'}[room.last.type]||room.last.text)}`:'Conversa criada · toque para abrir';info.append(top,preview);btn.append(ic,info);btn.addEventListener('click',()=>openRoom(room.id));list.append(btn);}}
 $('#search').addEventListener('input',renderRooms);
 // Preferências locais: alertas durante a conversa e notificações do sistema.
 const SETTINGS_KEY='vozchat_notification_settings_v1';
@@ -150,6 +159,14 @@ async function autoRestoreNotifications(){
 }
 function connectEvents(){
   if(events)events.close();events=new EventSource('/api/events');
+  events.addEventListener('contact-requests-changed',()=>{void refreshContactRequests();});
+  events.addEventListener('profile-updated',event=>{
+    const user=JSON.parse(event.data);
+    if(user.userId===me?.id){me.avatarUrl=user.avatarUrl;paintAvatar($('#meAvatar'),me.name,me.avatarUrl);}
+    if(current)renderHeader();
+    renderRooms();
+    void refreshContactRequests();
+  });
   events.addEventListener('room',event=>{
     const next=JSON.parse(event.data);upsertRoom(next);
     if($('#groupManageDialog').open&&managedGroup===next.id)void refreshGroupMembers();
@@ -210,7 +227,7 @@ function connectEvents(){
   events.onerror=()=>{if(!navigator.onLine)$('#offline').hidden=false;};
 }
 async function openRoom(roomId){if(current!==roomId){stopLiveRadio();}current=roomId;$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();}catch(err){toast(err.message);} }
-function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;$('#headerAvatar').textContent=avatar(r.name);}
+function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;paintAvatar($('#headerAvatar'),r.name,r.avatarUrl);$('#removeContactButton').hidden=!r.isDirect;}
 function renderMessages(){const list=$('#messages');list.replaceChildren();if(!messages.length){const msg=document.createElement('div');msg.className='mini-welcome';msg.textContent=current&&rooms.find(r=>r.id===current)?.isDirect?'Conversa iniciada ✨\nDiga oi para começar.':'Conversa iniciada ✨\nCompartilhe o convite para outras pessoas entrarem e começarem a trocar mensagens.';list.append(msg);}let lastDay='';for(const m of messages){const key=day(m.createdAt);if(key!==lastDay){const divider=document.createElement('div');divider.className='day-divider';divider.textContent=key;list.append(divider);lastDay=key;}renderMessage(m);}scrollDown();}
 function formatSize(size){if(size<1024)return size+' B';if(size<1048576)return (size/1024).toFixed(0)+' KB';if(size<1073741824)return (size/1048576).toFixed(1)+' MB';return (size/1073741824).toFixed(2)+' GB';}
 function renderMessage(m){
@@ -676,8 +693,14 @@ $('#contactForm').addEventListener('submit',async e=>{
   e.preventDefault();const button=$('#contactSubmit');button.disabled=true;
   try{
     const result=await api('/api/contacts/add',{method:'POST',data:{publicId:$('#contactId').value.trim()}});
-    $('#contactDialog').close();upsertRoom(result.room);await openRoom(result.room.id);
-    toast('Conversa com '+result.contact.name+' pronta!');
+    $('#contactDialog').close();
+    if(result.status==='connected'){
+      upsertRoom(result.room);await openRoom(result.room.id);
+      toast('Contato já está conectado.');
+    }else{
+      toast('Solicitação enviada! Aguarde a pessoa aceitar.');
+      await refreshContactRequests();
+    }
   }catch(err){toast(err.message);}finally{button.disabled=false;}
 });
 async function copyId(){
@@ -1010,6 +1033,171 @@ window.addEventListener('pagehide',()=>{
     headers:{'Content-Type':'application/json'},body:'{}',keepalive:true}).catch(()=>{});
 });
 
+
+
+// Consentimento para contatos privados e fotografia de perfil.
+async function refreshContactRequests(){
+  if(!me)return;
+  try{
+    const result=await api('/api/contacts/requests');
+    pendingContactRequests=result.requests||[];
+    const incoming=pendingContactRequests.filter(r=>r.kind==='incoming');
+    const badge=$('#pendingContactsCount');
+    badge.hidden=incoming.length===0;
+    badge.textContent=String(incoming.length);
+    const render=(target,items,isIncoming)=>{
+      target.replaceChildren();
+      if(!items.length){
+        const empty=document.createElement('p');
+        empty.className='pending-empty';
+        empty.textContent=isIncoming?'Nenhuma solicitação pendente.':'Nenhuma solicitação enviada.';
+        target.append(empty);return;
+      }
+      for(const request of items){
+        const item=document.createElement('div');item.className='pending-item';
+        const image=document.createElement('div');image.className='pending-avatar';
+        paintAvatar(image,request.name,request.avatarUrl);
+        const info=document.createElement('div');info.className='pending-info';
+        const title=document.createElement('strong');title.textContent=request.name;
+        const id=document.createElement('small');id.textContent='ID '+request.publicId;
+        info.append(title,id);
+        const controls=document.createElement('div');controls.className='pending-actions';
+        const button=(text,action,className)=>{
+          const b=document.createElement('button');b.type='button';b.className=className;
+          b.textContent=text;b.addEventListener('click',async()=>{
+            const all=[...controls.querySelectorAll('button')];all.forEach(x=>x.disabled=true);
+            try{
+              const result=await api('/api/contacts/requests/'+request.id+'/'+action,
+                {method:'POST',data:{}});
+              await refreshContactRequests();
+              if(result.status==='accepted'){
+                upsertRoom(result.room);await openRoom(result.room.id);
+                $('#pendingContactsDialog').close();
+                toast('Contato aceito. Conversa liberada.');
+              }else toast(action==='decline'?'Solicitação recusada.':'Solicitação cancelada.');
+            }catch(err){toast(err.message);all.forEach(x=>x.disabled=false);}
+          });return b;
+        };
+        if(isIncoming){
+          controls.append(button('Aceitar','accept','accept-request'),button('Recusar','decline','decline-request'));
+        }else controls.append(button('Cancelar','cancel','decline-request'));
+        item.append(image,info,controls);target.append(item);
+      }
+    };
+    if($('#pendingContactsDialog').open){
+      render($('#incomingRequestsList'),incoming,true);
+      render($('#outgoingRequestsList'),pendingContactRequests.filter(r=>r.kind==='outgoing'),false);
+    }
+  }catch(err){console.warn('Solicitações indisponíveis',err.message);}
+}
+$('#pendingContactsButton').addEventListener('click',async()=>{
+  await refreshContactRequests();
+  const renderInside=async()=>{
+    // Reutilizar os controles após abrir o modal.
+    const requests=pendingContactRequests;
+    for(const [id,kind] of [['incomingRequestsList','incoming'],['outgoingRequestsList','outgoing']]){
+      const list=$('#'+id);list.replaceChildren();
+      for(const request of requests.filter(r=>r.kind===kind)){
+        const row=document.createElement('div');row.className='pending-item';
+        const image=document.createElement('div');image.className='pending-avatar';
+        paintAvatar(image,request.name,request.avatarUrl);
+        const info=document.createElement('div');info.className='pending-info';
+        const title=document.createElement('strong');title.textContent=request.name;
+        const uid=document.createElement('small');uid.textContent='ID '+request.publicId;
+        info.append(title,uid);
+        const actions=document.createElement('div');actions.className='pending-actions';
+        for(const [action,label] of kind==='incoming'?[['accept','Aceitar'],['decline','Recusar']]:[['cancel','Cancelar']]){
+          const btn=document.createElement('button');btn.type='button';
+          btn.className=action==='accept'?'accept-request':'decline-request';
+          btn.textContent=label;
+          btn.addEventListener('click',async()=>{
+            btn.disabled=true;
+            try{
+              const result=await api('/api/contacts/requests/'+request.id+'/'+action,{method:'POST',data:{}});
+              if(result.status==='accepted'){
+                upsertRoom(result.room);
+                $('#pendingContactsDialog').close();
+                await openRoom(result.room.id);
+                toast('Contato aceito!');
+              }else toast(action==='decline'?'Solicitação recusada.':'Solicitação cancelada.');
+              await refreshContactRequests();if($('#pendingContactsDialog').open)await renderInside();
+            }catch(err){toast(err.message);btn.disabled=false;}
+          });
+          actions.append(btn);
+        }
+        row.append(image,info,actions);list.append(row);
+      }
+      if(!list.children.length){
+        const empty=document.createElement('p');empty.className='pending-empty';
+        empty.textContent=kind==='incoming'?'Nenhuma solicitação pendente.':'Nenhuma solicitação enviada.';
+        list.append(empty);
+      }
+    }
+  };
+  openDialog('pendingContactsDialog');await renderInside();
+});
+$('#removeContactButton').addEventListener('click',async()=>{
+  const r=rooms.find(x=>x.id===current);
+  if(!r?.isDirect)return;
+  if(!confirm('Excluir '+r.name+' dos contatos? A conversa será removida para ambos e ficará indisponível até uma nova solicitação ser aceita. O histórico permanecerá armazenado.'))return;
+  const button=$('#removeContactButton');button.disabled=true;
+  try{
+    await api('/api/contacts/'+r.id,{method:'DELETE'});
+    rooms=rooms.filter(x=>x.id!==r.id);
+    stopLiveRadio();resetActiveChat();renderRooms();
+    toast('Contato removido.');
+  }catch(err){toast(err.message);}
+  finally{button.disabled=false;}
+});
+function showProfilePhoto(){
+  paintAvatar($('#profilePreview'),me.name,me.avatarUrl);
+  $('#removeProfilePhoto').hidden=!me.avatarUrl;
+  openDialog('profilePhotoDialog');
+}
+$('#meAvatar').addEventListener('click',showProfilePhoto);
+$('#settingsProfilePhoto').addEventListener('click',()=>{
+  $('#settingsDialog').close();showProfilePhoto();
+});
+$('#selectProfilePhoto').addEventListener('click',()=>$('#profilePhotoInput').click());
+$('#profilePhotoInput').addEventListener('change',async e=>{
+  const file=e.target.files?.[0];e.target.value='';
+  if(!file)return;
+  if(!file.type.startsWith('image/')){toast('Escolha uma imagem.');return;}
+  const button=$('#selectProfilePhoto');button.disabled=true;
+  let url=null;
+  try{
+    url=URL.createObjectURL(file);
+    const img=await new Promise((resolve,reject)=>{
+      const img=new Image();
+      img.onload=()=>resolve(img);img.onerror=()=>reject(Error('Não foi possível abrir esta foto.'));
+      img.src=url;
+    });
+    const canvas=document.createElement('canvas');canvas.width=256;canvas.height=256;
+    const ctx=canvas.getContext('2d');if(!ctx)throw Error('Edição de fotos indisponível neste aparelho.');
+    const size=Math.min(img.naturalWidth,img.naturalHeight);
+    ctx.drawImage(img,(img.naturalWidth-size)/2,(img.naturalHeight-size)/2,size,size,0,0,256,256);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.78));
+    if(!blob||blob.size>512*1024)throw Error('A foto excede o tamanho permitido.');
+    const response=await fetch('/api/profile/avatar',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'image/jpeg'},body:blob});
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok)throw Error(result.error||'Não foi possível salvar.');
+    me=result.user;paintAvatar($('#meAvatar'),me.name,me.avatarUrl);
+    paintAvatar($('#profilePreview'),me.name,me.avatarUrl);
+    $('#removeProfilePhoto').hidden=false;
+    toast('Foto atualizada!');
+  }catch(err){toast(err.message||'Não foi possível atualizar a foto.');}
+  finally{if(url)URL.revokeObjectURL(url);button.disabled=false;}
+});
+$('#removeProfilePhoto').addEventListener('click',async()=>{
+  try{
+    const result=await api('/api/profile/avatar',{method:'DELETE'});
+    me=result.user;paintAvatar($('#meAvatar'),me.name,null);
+    paintAvatar($('#profilePreview'),me.name,null);
+    $('#removeProfilePhoto').hidden=true;
+    toast('Foto removida.');
+  }catch(err){toast(err.message);}
+});
 
 const compactSettingKey='vozchat_compact_rooms';
 function applyCompact(){

@@ -35,7 +35,9 @@ test('transferência fracionada >25MB: progresso, permissão, intervalo e cancel
   assert.equal(a.status,201);assert.equal(b.status,201);
   const added=await req('POST','/api/contacts/add',{publicId:b.data.user.publicId},a.cookie);
   assert.equal(added.status,201);
-  const roomId=added.data.room.id;
+  const acceptance=await req('POST','/api/contacts/requests/'+added.data.request.id+'/accept',{},b.cookie);
+  assert.equal(acceptance.status,200);
+  const roomId=acceptance.data.room.id;
   const config=await req('GET','/api/transfers/config',undefined,a.cookie);
   assert.equal(config.status,200);
   assert.equal(config.data.maxBytes,1024*1024*1024);

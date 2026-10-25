@@ -43,7 +43,9 @@ test('chamadas privadas: criar, atender, autenticar câmera/microfone, recusar e
   assert.equal(a.status,201);assert.equal(b.status,201);assert.equal(outsider.status,201);
   const contact=await req('POST','/api/contacts/add',{publicId:b.data.user.publicId},a.cookie);
   assert.equal(contact.status,201);
-  const roomId=contact.data.room.id;
+  const acceptance=await req('POST','/api/contacts/requests/'+contact.data.request.id+'/accept',{},b.cookie);
+  assert.equal(acceptance.status,200);
+  const roomId=acceptance.data.room.id;
   const unauthorized=await req('POST','/api/calls/start',{roomId,kind:'video'},outsider.cookie);
   assert.equal(unauthorized.status,403);
   const invalid=await req('POST','/api/calls/start',{roomId,kind:'screen'},a.cookie);
@@ -109,7 +111,7 @@ test('interface possui controles separados de áudio/vídeo, alerta e privacidad
   assert.match(sw,/const isCall=payload\.kind==='call'/);
   assert.match(sw,/\/app\?open=/);
   assert.match(sw,/&call=/);
-  assert.match(sw,/vozchat-shell-v18/);
+  assert.match(sw,/vozchat-shell-v19/);
   assert.match(server,/camera=\(self\), microphone=\(self\)/);
   assert.match(css,/\.call-overlay/);
   assert.match(read('package.json'),/build:calls/);

@@ -88,7 +88,7 @@ const pushEnabled = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 const webPush = pushEnabled ? (await import('web-push')).default : null;
 if(webPush) webPush.setVapidDetails(process.env.VAPID_SUBJECT || 'https://vozchat-pwa.onrender.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 const pool = POSTGRES_URL ? new (await import('pg')).default.Pool({connectionString:POSTGRES_URL,max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000}) : null;
-let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], largeUploads: [], nextPublicId: '10', pushSubscriptions: [] };
+let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], largeUploads: [], contactRequests: [], nextPublicId: '10', pushSubscriptions: [] };
 if(!pool) {
   try {db={...db,...JSON.parse(fs.readFileSync(DATA_FILE,'utf8'))};}
   catch(err){if(err.code!=='ENOENT')throw err;}
@@ -283,9 +283,10 @@ function allocatePublicId(){
   db.nextPublicId=String(n+1n);
   return String(n);
 }
-function safeUser(u) { return {id:u.id,name:u.name,username:u.username,publicId:u.publicId}; }
-function roomView(r,uid) { const last=[...db.messages].reverse().find(m=>m.roomId===r.id); const peer=r.directKey?db.users.find(u=>u.id!==uid&&r.members.includes(u.id)):null; return {id:r.id,name:peer?.name||r.name,peerId:peer?.publicId||null,isDirect:!!r.directKey,isOwner:r.owner===uid,createdAt:r.createdAt,members:r.members.length,owner:r.owner,inviteUrl:r.directKey?null:`/app?join=${encodeURIComponent(r.id)}.${r.secret}`,last:last?{type:last.type,text:last.text||'',fileName:last.fileName||'',createdAt:last.createdAt,senderName:last.senderName}:null}; }
-function member(uid,rid) { const r=db.rooms.find(r=>r.id===rid); return r && r.members.includes(uid) ? r : null; }
+function avatarUrl(u){return u?.avatarId?'/api/avatars/'+u.id:null;}
+function safeUser(u) { return {id:u.id,name:u.name,username:u.username,publicId:u.publicId,avatarUrl:avatarUrl(u)}; }
+function roomView(r,uid) { const last=[...db.messages].reverse().find(m=>m.roomId===r.id); const peer=r.directKey?db.users.find(u=>u.id!==uid&&r.members.includes(u.id)):null; return {id:r.id,name:peer?.name||r.name,peerId:peer?.publicId||null,avatarUrl:avatarUrl(peer),isDirect:!!r.directKey,isOwner:r.owner===uid,createdAt:r.createdAt,members:r.members.length,owner:r.owner,inviteUrl:r.directKey?null:`/app?join=${encodeURIComponent(r.id)}.${r.secret}`,last:last?{type:last.type,text:last.text||'',fileName:last.fileName||'',createdAt:last.createdAt,senderName:last.senderName}:null}; }
+function member(uid,rid) { const r=db.rooms.find(r=>r.id===rid); return r && !r.inactive && r.members.includes(uid) ? r : null; }
 function groupMembers(r) {
   return r.members.map(uid=>db.users.find(u=>u.id===uid)).filter(Boolean)
     .map(u=>({name:u.name,publicId:u.publicId,isOwner:r.owner===u.id}));
@@ -405,7 +406,7 @@ async function api(req,res,url) {
   const u=userFrom(req);
   if(!u) return error(res,401,'Faça login para continuar.');
   if(method==='POST'&&p==='/api/logout') { const token=cookie(req).vozchat_session; db.sessions=db.sessions.filter(s=>s.hash!==sha(token||'')); await save(); return json(res,200,{ok:true},{'Set-Cookie':sessionCookie(req,'',0)}); }
-  if(method==='GET'&&p==='/api/bootstrap') return json(res,200,{user:safeUser(u),rooms:db.rooms.filter(r=>r.members.includes(u.id)).map(r=>roomView(r,u.id))});
+  if(method==='GET'&&p==='/api/bootstrap') return json(res,200,{user:safeUser(u),rooms:db.rooms.filter(r=>!r.inactive&&r.members.includes(u.id)).map(r=>roomView(r,u.id))});
   if(method==='GET'&&p==='/api/events') { res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-store, must-revalidate','Connection':'keep-alive','X-Accel-Buffering':'no'}); res.write(': connected\n\n'); const set=clients.get(u.id)||new Set(); set.add(res); clients.set(u.id,set); const keep=setInterval(()=>{try{res.write(': ping\n\n');}catch{}},20000); req.on('close',()=>{clearInterval(keep);set.delete(res);if(!set.size)clients.delete(u.id);}); return; }
   if(method==='GET'&&p==='/api/push/config') return json(res,200,{enabled:pushEnabled,publicKey:pushEnabled?VAPID_PUBLIC_KEY:null});
   if(method==='POST'&&p==='/api/push/subscribe') {
@@ -431,6 +432,28 @@ async function api(req,res,url) {
     await save();
     return json(res,200,{ok:true});
   }
+function contactRequestView(request,uid){
+  const other=db.users.find(x=>x.id===(request.from===uid?request.to:request.from));
+  return {id:request.id,kind:request.to===uid?'incoming':'outgoing',
+    name:other?.name||'Pessoa',publicId:other?.publicId||'',avatarUrl:avatarUrl(other),
+    createdAt:request.createdAt};
+}
+function emitContactRequests(users){
+  for(const uid of users)push([uid],'contact-requests-changed',{});
+}
+async function deactivateDirectRoom(room){
+  room.inactive=true;room.inactiveAt=new Date().toISOString();
+  talkCloseRoom(room.id);
+  void closeLivekitRoom(room.id);
+  endCallsForRoom(room.id);
+  for(const uid of room.members)push([uid],'room-removed',{roomId:room.id});
+}
+
+  if(method==='GET'&&p==='/api/contacts/requests'){
+    return json(res,200,{requests:(db.contactRequests||[])
+      .filter(r=>r.from===u.id||r.to===u.id)
+      .map(r=>contactRequestView(r,u.id))});
+  }
   if(method==='POST'&&p==='/api/contacts/add') {
     if(limitContactSearch(u.id))return error(res,429,'Muitas buscas por ID. Tente novamente mais tarde.');
     const input=JSON.parse((await body(req)).toString('utf8'));
@@ -440,15 +463,110 @@ async function api(req,res,url) {
     if(!target)return error(res,404,'Nenhuma pessoa encontrada com esse ID.');
     if(target.id===u.id)return error(res,400,'Esse ID pertence à sua própria conta.');
     const pair=[u.id,target.id].sort().join(':');
-    let room=db.rooms.find(r=>r.directKey===pair);
-    const wasNew=!room;
-    if(!room) {
-      room={id:id(),name:'Conversa privada',directKey:pair,secret:rand(24),owner:u.id,members:[u.id,target.id],createdAt:new Date().toISOString()};
-      db.rooms.push(room);
-      await save();
+    const room=db.rooms.find(r=>r.directKey===pair&&!r.inactive);
+    if(room)return json(res,200,{status:'connected',room:roomView(room,u.id),contact:safeUser(target)});
+    const existing=(db.contactRequests||[]).find(r=>
+      (r.from===u.id&&r.to===target.id)||(r.to===u.id&&r.from===target.id));
+    if(existing){
+      if(existing.to===u.id)return error(res,409,'Esta pessoa já enviou uma solicitação. Aceite ou recuse em Pendentes.');
+      return json(res,200,{status:'pending',request:contactRequestView(existing,u.id)});
     }
-    for(const uid of room.members)push([uid],'room',roomView(room,uid));
-    return json(res,wasNew?201:200,{room:roomView(room,u.id),contact:safeUser(target)});
+    if((db.contactRequests||[]).filter(r=>r.from===u.id).length>=30)
+      return error(res,429,'Limite de solicitações pendentes. Cancele uma antes de continuar.');
+    const request={id:id(),from:u.id,to:target.id,createdAt:new Date().toISOString()};
+    db.contactRequests ||= [];db.contactRequests.push(request);
+    await save();emitContactRequests([u.id,target.id]);
+    return json(res,201,{status:'pending',request:contactRequestView(request,u.id)});
+  }
+  const requestMatch=/^\/api\/contacts\/requests\/([0-9a-f-]{36})\/(accept|decline|cancel)$/.exec(p);
+  if(method==='POST'&&requestMatch){
+    const request=(db.contactRequests||[]).find(r=>r.id===requestMatch[1]);
+    if(!request)return error(res,404,'Solicitação não encontrada.');
+    const action=requestMatch[2];
+    if(action==='cancel'&&request.from!==u.id)return error(res,403,'Somente quem enviou pode cancelar.');
+    if(action!=='cancel'&&request.to!==u.id)return error(res,403,'Somente o destinatário pode responder.');
+    db.contactRequests=db.contactRequests.filter(r=>r.id!==request.id);
+    if(action==='accept'){
+      const pair=[request.from,request.to].sort().join(':');
+      let room=db.rooms.find(r=>r.directKey===pair);
+      if(!room){
+        room={id:id(),name:'Conversa privada',directKey:pair,secret:rand(24),
+          owner:request.from,members:[request.from,request.to],createdAt:new Date().toISOString()};
+        db.rooms.push(room);
+      }else{room.inactive=false;delete room.inactiveAt;}
+      await save();
+      for(const uid of room.members)push([uid],'room',roomView(room,uid));
+      emitContactRequests([request.from,request.to]);
+      return json(res,200,{status:'accepted',room:roomView(room,u.id)});
+    }
+    await save();emitContactRequests([request.from,request.to]);
+    return json(res,200,{status:action==='decline'?'declined':'canceled'});
+  }
+  const deleteContact=/^\/api\/contacts\/([0-9a-f-]{36})$/.exec(p);
+  if(method==='DELETE'&&deleteContact){
+    const room=db.rooms.find(r=>r.id===deleteContact[1]&&r.directKey&&!r.inactive&&r.members.includes(u.id));
+    if(!room)return error(res,404,'Contato não encontrado.');
+    await deactivateDirectRoom(room);
+    const [left,right]=room.members;
+    db.contactRequests=(db.contactRequests||[]).filter(r=>!((r.from===left&&r.to===right)||(r.from===right&&r.to===left)));
+    await save();
+    emitContactRequests(room.members);
+    return json(res,200,{ok:true});
+  }
+  if(method==='POST'&&p==='/api/profile/avatar'){
+    const mime=String(req.headers['content-type']||'').split(';')[0].trim().toLowerCase();
+    if(!['image/jpeg','image/png','image/webp'].includes(mime))
+      return error(res,415,'Envie uma foto JPEG, PNG ou WEBP.');
+    if(Number(req.headers['content-length'])>512*1024)return error(res,413,'Foto limitada a 512 KB.');
+    const content=await body(req,512*1024);
+    const jpeg=content.length>=3&&content[0]===255&&content[1]===216&&content[2]===255;
+    const png=content.length>=8&&content.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
+    const webp=content.length>=12&&content.toString('ascii',0,4)==='RIFF'&&content.toString('ascii',8,12)==='WEBP';
+    if(!((mime==='image/jpeg'&&jpeg)||(mime==='image/png'&&png)||(mime==='image/webp'&&webp)))
+      return error(res,415,'Conteúdo inválido para imagem de perfil.');
+    const avatarId=id(),old=u.avatarId;
+    await writeBlob(avatarId,path.join(FILES,'avatar-'+avatarId),content);
+    u.avatarId=avatarId;u.avatarMime=mime;await save();
+    if(old){
+      if(pool)await pool.query('DELETE FROM vozchat_blobs WHERE id=$1',[old]).catch(()=>{});
+      else await fsp.rm(path.join(FILES,'avatar-'+old),{force:true}).catch(()=>{});
+    }
+    const related=new Set([u.id]);
+    for(const room of db.rooms.filter(r=>!r.inactive&&r.members.includes(u.id)))
+      for(const uid of room.members){related.add(uid);push([uid],'room',roomView(room,uid));}
+    for(const request of db.contactRequests||[]){
+      if(request.from===u.id)related.add(request.to);
+      if(request.to===u.id)related.add(request.from);
+    }
+    emitContactRequests([...related]);
+    push([...related],'profile-updated',{userId:u.id,avatarUrl:avatarUrl(u)});
+    return json(res,200,{user:safeUser(u)});
+  }
+  if(method==='DELETE'&&p==='/api/profile/avatar'){
+    const old=u.avatarId;delete u.avatarId;delete u.avatarMime;await save();
+    if(old){
+      if(pool)await pool.query('DELETE FROM vozchat_blobs WHERE id=$1',[old]).catch(()=>{});
+      else await fsp.rm(path.join(FILES,'avatar-'+old),{force:true}).catch(()=>{});
+    }
+    const related=new Set([u.id]);
+    for(const room of db.rooms.filter(r=>!r.inactive&&r.members.includes(u.id)))
+      for(const uid of room.members){related.add(uid);push([uid],'room',roomView(room,uid));}
+    emitContactRequests([...related]);
+    return json(res,200,{user:safeUser(u)});
+  }
+  const avatarMatch=/^\/api\/avatars\/([0-9a-f-]{36})$/.exec(p);
+  if(method==='GET'&&avatarMatch){
+    const owner=db.users.find(x=>x.id===avatarMatch[1]);
+    if(!owner?.avatarId)return error(res,404,'Foto não encontrada.');
+    const connected=db.rooms.some(r=>!r.inactive&&r.members.includes(u.id)&&r.members.includes(owner.id));
+    const requested=(db.contactRequests||[]).some(r=>
+      (r.from===u.id&&r.to===owner.id)||(r.to===u.id&&r.from===owner.id));
+    if(owner.id!==u.id&&!connected&&!requested)return error(res,403,'Foto privada.');
+    const data=await readBlob(owner.avatarId,path.join(FILES,'avatar-'+owner.avatarId));
+    if(!data)return error(res,404,'Foto indisponível.');
+    res.writeHead(200,{'Content-Type':owner.avatarMime||'image/jpeg','Cache-Control':'private,no-store',
+      'Content-Length':data.length,'X-Content-Type-Options':'nosniff'});
+    res.end(data);return;
   }
   if(method==='POST'&&p==='/api/rooms') { const input=JSON.parse((await body(req)).toString('utf8')); const name=String(input.name||'').trim(); if(name.length<2||name.length>60) return error(res,400,'Nome da conversa deve ter de 2 a 60 caracteres.'); const r={id:id(),secret:rand(24),owner:u.id,name,members:[u.id],createdAt:new Date().toISOString()}; db.rooms.push(r); await save(); const view=roomView(r,u.id); push([u.id],'room',view); return json(res,201,{room:view}); }
   if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&!r.directKey&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){r.members.push(u.id);await save();for(const uid of r.members)push([uid],'room',roomView(r,uid));} return json(res,200,{room:roomView(r,u.id)}); }
