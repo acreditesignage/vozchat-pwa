@@ -14,6 +14,12 @@ const DATA = process.env.DATA_DIR || path.join(ROOT, 'data');
 const AUDIO = path.join(DATA, 'audio');
 const FILES = path.join(DATA, 'files');
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+// Arquivos maiores usam upload fracionado e acesso privado. Não ampliar o buffer legado.
+// O PostgreSQL é provisório; armazenamento de objetos deve ser usado antes de escalar.
+const TRANSFER_CHUNK_BYTES=1024*1024;
+const MAX_LARGE_FILE_BYTES=100*1024*1024;
+const TRANSFER_QUOTA_BYTES=512*1024*1024;
+const TRANSFER_TTL_MS=24*60*60*1000;
 const ALLOWED_FILES = {
   '.jpg': ['image/jpeg'], '.jpeg': ['image/jpeg'], '.png': ['image/png'], '.webp': ['image/webp'], '.gif': ['image/gif'],
   '.heic': ['image/heic', 'image/heif', 'application/octet-stream'], '.heif': ['image/heif', 'image/heic', 'application/octet-stream'],
@@ -23,6 +29,14 @@ const ALLOWED_FILES = {
   '.xls': ['application/vnd.ms-excel','application/octet-stream'], '.xlsx': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/octet-stream'],
   '.ppt': ['application/vnd.ms-powerpoint','application/octet-stream'], '.pptx': ['application/vnd.openxmlformats-officedocument.presentationml.presentation','application/octet-stream'],
   '.zip': ['application/zip','application/x-zip-compressed','application/octet-stream'],
+  '.7z': ['application/x-7z-compressed','application/octet-stream'],
+  '.rar': ['application/vnd.rar','application/x-rar-compressed','application/octet-stream'],
+  '.odt': ['application/vnd.oasis.opendocument.text','application/octet-stream'],
+  '.ods': ['application/vnd.oasis.opendocument.spreadsheet','application/octet-stream'],
+  '.odp': ['application/vnd.oasis.opendocument.presentation','application/octet-stream'],
+  '.dcm': ['application/dicom','application/octet-stream'],
+  '.dwg': ['image/vnd.dwg','application/acad','application/octet-stream'],
+  '.dxf': ['image/vnd.dxf','application/dxf','application/octet-stream'],
 };
 
 const PORT = Number(process.env.PORT || 3000);
@@ -74,7 +88,7 @@ const pushEnabled = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 const webPush = pushEnabled ? (await import('web-push')).default : null;
 if(webPush) webPush.setVapidDetails(process.env.VAPID_SUBJECT || 'https://vozchat-pwa.onrender.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 const pool = POSTGRES_URL ? new (await import('pg')).default.Pool({connectionString:POSTGRES_URL,max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000}) : null;
-let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], nextPublicId: '10', pushSubscriptions: [] };
+let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], largeUploads: [], nextPublicId: '10', pushSubscriptions: [] };
 if(!pool) {
   try {db={...db,...JSON.parse(fs.readFileSync(DATA_FILE,'utf8'))};}
   catch(err){if(err.code!=='ENOENT')throw err;}
@@ -90,6 +104,7 @@ async function startStorage(){
   if(!pool)return;
   await pool.query('CREATE TABLE IF NOT EXISTS vozchat_state(id INTEGER PRIMARY KEY CHECK(id=1),state JSONB NOT NULL,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
   await pool.query('CREATE TABLE IF NOT EXISTS vozchat_blobs(id UUID PRIMARY KEY,content BYTEA NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
+  await pool.query('CREATE TABLE IF NOT EXISTS vozchat_transfer_chunks(file_id UUID NOT NULL, part INTEGER NOT NULL, content BYTEA NOT NULL, PRIMARY KEY(file_id,part))');
   const result=await pool.query('SELECT state FROM vozchat_state WHERE id=1');
   if(result.rows.length)db={...db,...result.rows[0].state};
   else await save();
@@ -103,6 +118,77 @@ async function readBlob(id,localPath){
   if(pool){const result=await pool.query('SELECT content FROM vozchat_blobs WHERE id=$1',[id]);return result.rows[0]?.content||null;}
   try{return await fsp.readFile(localPath);}catch(err){if(err.code==='ENOENT')return null;throw err;}
 }
+function normalizeTransferFile(name,mime){
+  const originalName=path.basename(String(name||'').trim()).replace(/[\x00-\x1f\x7f]/g,'').slice(0,150);
+  const ext=path.extname(originalName).toLowerCase();
+  const safeMime=String(mime||'application/octet-stream').split(';')[0].trim().toLowerCase();
+  if(!originalName||!ALLOWED_FILES[ext]||!ALLOWED_FILES[ext].includes(safeMime))return null;
+  const kind=['.jpg','.jpeg','.png','.webp','.gif','.heic','.heif'].includes(ext)?'image':
+    ['.mp4','.mov','.webm','.m4v','.3gp'].includes(ext)?'video':'file';
+  return {originalName,ext,mime:safeMime,kind};
+}
+function userTransferBytes(){
+  return db.files.reduce((sum,f)=>sum+(f.storage==='chunks'?Number(f.bytes)||0:0),0)+
+    (db.largeUploads||[]).reduce((sum,f)=>sum+(Number(f.size)||0),0);
+}
+function transferPartPath(fileId,part){return path.join(FILES,fileId+'.part-'+part);}
+async function storeTransferChunk(fileId,part,content){
+  if(pool){
+    await pool.query('INSERT INTO vozchat_transfer_chunks(file_id,part,content) VALUES($1,$2,$3) ON CONFLICT(file_id,part) DO UPDATE SET content=EXCLUDED.content',[fileId,part,content]);
+  }else await fsp.writeFile(transferPartPath(fileId,part),content);
+}
+async function readTransferChunk(fileId,part){
+  if(pool){
+    const result=await pool.query('SELECT content FROM vozchat_transfer_chunks WHERE file_id=$1 AND part=$2',[fileId,part]);
+    return result.rows[0]?.content||null;
+  }
+  try{return await fsp.readFile(transferPartPath(fileId,part));}catch{return null;}
+}
+async function deleteTransferChunks(fileId,parts){
+  if(pool)await pool.query('DELETE FROM vozchat_transfer_chunks WHERE file_id=$1',[fileId]);
+  else for(let i=0;i<parts;i++)await fsp.rm(transferPartPath(fileId,i),{force:true}).catch(()=>{});
+}
+async function expireUploads(){
+  const now=Date.now();
+  const expired=(db.largeUploads||[]).filter(x=>now-Number(x.createdAt)>TRANSFER_TTL_MS);
+  if(!expired.length)return;
+  for(const item of expired)await deleteTransferChunks(item.id,item.chunks);
+  db.largeUploads=db.largeUploads.filter(x=>!expired.includes(x));
+  await save();
+}
+async function streamTransfer(req,res,file,headers){
+  const total=file.bytes;
+  let start=0,end=total-1,status=200;
+  if(req.headers.range){
+    const match=/^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range));
+    if(!match)return error(res,416,'Intervalo inválido.');
+    if(match[1]){start=Number(match[1]);end=match[2]?Number(match[2]):end;}
+    else if(match[2]){const suffix=Number(match[2]);start=Math.max(0,total-suffix);}
+    else return error(res,416,'Intervalo inválido.');
+    if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start>=total||end<start||start<0)return error(res,416,'Intervalo inválido.');
+    end=Math.min(total-1,end);status=206;
+  }
+  const resultHeaders={...headers,'Content-Length':end-start+1};
+  if(status===206)resultHeaders['Content-Range']='bytes '+start+'-'+end+'/'+total;
+  // Primeira parte verificada antes de enviar cabeçalhos.
+  const first=Math.floor(start/TRANSFER_CHUNK_BYTES),last=Math.floor(end/TRANSFER_CHUNK_BYTES);
+  let chunk=await readTransferChunk(file.id,first);
+  if(!chunk)return error(res,404,'Arquivo indisponível.');
+  res.writeHead(status,resultHeaders);
+  for(let part=first;part<=last;part++){
+    if(part!==first)chunk=await readTransferChunk(file.id,part);
+    if(!chunk){res.destroy();return;}
+    const base=part*TRANSFER_CHUNK_BYTES;
+    const buffer=chunk.subarray(Math.max(0,start-base),Math.min(chunk.length,end-base+1));
+    if(!res.write(buffer))await new Promise(resolve=>{
+      const done=()=>{res.off('drain',done);res.off('close',done);resolve();};
+      res.once('drain',done);res.once('close',done);
+    });
+    if(res.destroyed)return;
+  }
+  res.end();
+}
+
 function serveBlob(req,res,bytes,headers){
   const range=req.headers.range;
   if(range){
@@ -210,8 +296,13 @@ function publishGroupChange(r,removed=[]) {
 }
 async function purgeGroupMedia(audios,files) {
   const ids=[...audios.map(a=>a.id),...files.map(f=>f.id)];
+  const large=files.filter(f=>f.storage==='chunks');
   if(pool&&ids.length)await pool.query('DELETE FROM vozchat_blobs WHERE id=ANY($1::uuid[])',[ids]);
-  if(!pool)await Promise.all([...audios.map(a=>path.join(AUDIO,a.filename)),...files.map(f=>path.join(FILES,f.storedName))].map(p=>fsp.unlink(p).catch(()=>{})));
+  if(pool&&large.length)await pool.query('DELETE FROM vozchat_transfer_chunks WHERE file_id=ANY($1::uuid[])',[large.map(f=>f.id)]);
+  if(!pool){
+    await Promise.all([...audios.map(a=>path.join(AUDIO,a.filename)),...files.filter(f=>f.storage!=='chunks').map(f=>path.join(FILES,f.storedName))].map(p=>fsp.unlink(p).catch(()=>{})));
+    for(const f of large)await deleteTransferChunks(f.id,Math.ceil(f.bytes/TRANSFER_CHUNK_BYTES));
+  }
 }
 async function sendMsg(room,user,type,extra) { const msg={id:id(),roomId:room.id,senderId:user.id,senderName:user.name,type,createdAt:new Date().toISOString(),...extra}; db.messages.push(msg); await save(); push(room.members,'message',msg); void notifyMembers(room,user,msg).catch(e=>console.warn('Push error',e?.message)); for(const uid of room.members)push([uid],'room',roomView(room,uid)); return msg; }
 function contentType(ext) { return {'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.webmanifest':'application/manifest+json','.ico':'image/x-icon'}[ext]||'application/octet-stream'; }
@@ -500,7 +591,10 @@ async function api(req,res,url) {
       db.messages=db.messages.filter(m=>m.roomId!==rid);
       db.audios=db.audios.filter(a=>a.roomId!==rid);
       db.files=db.files.filter(f=>f.roomId!==rid);
+      const pendingTransfers=(db.largeUploads||[]).filter(f=>f.roomId===rid);
+      db.largeUploads=(db.largeUploads||[]).filter(f=>f.roomId!==rid);
       await save();
+      for(const item of pendingTransfers)await deleteTransferChunks(item.id,item.chunks);
       for(const uid of recipients)push([uid],'room-removed',{roomId:rid});
       await purgeGroupMedia(audios,files).catch(e=>console.warn('Falha na limpeza de mídia de grupo',e.message));
       return json(res,200,{ok:true});
@@ -543,18 +637,91 @@ async function api(req,res,url) {
       return json(res,201,{message:await sendMsg(r,u,'audio',{audioId:aid,duration:Math.min(600,duration)})});
     }
   }
+  // Upload privado fracionado, obrigatório para anexos acima de 25MB.
+  if(method==='GET'&&p==='/api/transfers/config'){
+    return json(res,200,{maxBytes:MAX_LARGE_FILE_BYTES,chunkBytes:TRANSFER_CHUNK_BYTES,
+      legacyBytes:MAX_FILE_BYTES,quotaBytes:TRANSFER_QUOTA_BYTES,
+      availableBytes:Math.max(0,TRANSFER_QUOTA_BYTES-userTransferBytes())});
+  }
+  if(method==='POST'&&p==='/api/transfers/start'){
+    const input=JSON.parse((await body(req,4096)).toString('utf8'));
+    const roomId=String(input.roomId||'');
+    const room=member(u.id,roomId);
+    if(!room)return error(res,403,'Sem permissão para esta conversa.');
+    const meta=normalizeTransferFile(input.name,input.mime);
+    if(!meta)return error(res,415,'Formato não permitido. Envie documentos, imagens, vídeos e arquivos compactados.');
+    const size=Number(input.size);
+    if(!Number.isSafeInteger(size)||size<=MAX_FILE_BYTES||size>MAX_LARGE_FILE_BYTES)
+      return error(res,413,'Use envio normal até 25MB; arquivos grandes têm limite de 100MB.');
+    await expireUploads();
+    if(userTransferBytes()+size>TRANSFER_QUOTA_BYTES)
+      return error(res,507,'Capacidade de arquivos grandes atingida neste servidor. Será necessário armazenamento externo.');
+    if((db.largeUploads||[]).filter(x=>x.userId===u.id).length>=3)
+      return error(res,429,'Finalize ou cancele um dos envios em andamento.');
+    const chunks=Math.ceil(size/TRANSFER_CHUNK_BYTES);
+    const upload={id:id(),roomId,userId:u.id,name:meta.originalName,mime:meta.mime,ext:meta.ext,
+      kind:meta.kind,size,chunks,received:0,createdAt:Date.now()};
+    db.largeUploads ||= [];db.largeUploads.push(upload);
+    await save();
+    return json(res,201,{uploadId:upload.id,chunkBytes:TRANSFER_CHUNK_BYTES,chunks,received:0});
+  }
+  const uploadMatch=p.match(/^\/api\/transfers\/([0-9a-f-]{36})\/(chunk|finish|cancel|status)$/);
+  if(uploadMatch){
+    const upload=(db.largeUploads||[]).find(x=>x.id===uploadMatch[1]);
+    if(!upload||upload.userId!==u.id||!member(u.id,upload.roomId))
+      return error(res,404,'Envio não encontrado.');
+    const action=uploadMatch[2];
+    if(method==='GET'&&action==='status')
+      return json(res,200,{received:upload.received,chunks:upload.chunks,chunkBytes:TRANSFER_CHUNK_BYTES,size:upload.size});
+    if(method==='POST'&&action==='cancel'){
+      await deleteTransferChunks(upload.id,upload.chunks);
+      db.largeUploads=db.largeUploads.filter(x=>x!==upload);await save();
+      return json(res,200,{ok:true});
+    }
+    if(method==='POST'&&action==='chunk'){
+      const idx=Number(req.headers['x-part-index']);
+      if(!Number.isSafeInteger(idx)||idx<0||idx>=upload.chunks)return error(res,400,'Parte inválida.');
+      if(idx!==upload.received)return error(res,409,'Ordem de envio inválida.');
+      const expected=Math.min(TRANSFER_CHUNK_BYTES,upload.size-idx*TRANSFER_CHUNK_BYTES);
+      if(Number(req.headers['content-length'])>expected)return error(res,413,'Parte excede limite.');
+      const data=await body(req,TRANSFER_CHUNK_BYTES);
+      if(data.length!==expected)return error(res,400,'Parte incompleta.');
+      await storeTransferChunk(upload.id,idx,data);
+      upload.received++;
+      await save();
+      return json(res,200,{received:upload.received,chunks:upload.chunks});
+    }
+    if(method==='POST'&&action==='finish'){
+      if(upload.received!==upload.chunks)return error(res,409,'Ainda faltam partes do arquivo.');
+      const last=await readTransferChunk(upload.id,upload.chunks-1);
+      if(!last||last.length!==upload.size-(upload.chunks-1)*TRANSFER_CHUNK_BYTES)
+        return error(res,409,'Última parte ausente.');
+      // A conversa pode ter sido removida entre o início e o fim do envio.
+      const room=member(u.id,upload.roomId);
+      if(!room)return error(res,403,'Conversa indisponível.');
+      const fileId=upload.id;
+      db.files.push({id:fileId,storedName:fileId+upload.ext,originalName:upload.name,
+        mime:upload.mime,roomId:upload.roomId,bytes:upload.size,kind:upload.kind,storage:'chunks'});
+      db.largeUploads=db.largeUploads.filter(x=>x!==upload);
+      const message=await sendMsg(room,u,upload.kind,
+        {fileId,fileName:upload.name,fileSize:upload.size,fileMime:upload.mime});
+      return json(res,201,{message});
+    }
+  }
+
   const fileMatch=p.match(/^\/api\/files\/([0-9a-f-]{36})$/);
   if(method==='GET'&&fileMatch) {
     const file=db.files.find(f=>f.id===fileMatch[1]);
     if(!file || !member(u.id,file.roomId)) return error(res,404,'Arquivo não encontrado.');
-    const filepath=path.join(FILES,file.storedName);
-    const bytes=await readBlob(file.id,filepath);if(!bytes)return error(res,404,'Arquivo indisponível.');
     // Documentos sempre são baixados. Imagem/vídeo podem aparecer diretamente na conversa.
     const inline=file.kind==='image'||file.kind==='video';
     const safeName=file.originalName.replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,100);
     const disposition=`${inline?'inline':'attachment'}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(file.originalName)}`;
     const headers={'Content-Type':file.mime==='application/octet-stream'?'application/octet-stream':file.mime,
       'Content-Disposition':disposition,'Accept-Ranges':'bytes','Cache-Control':'private, no-store'};
+    if(file.storage==='chunks')return streamTransfer(req,res,file,headers);
+    const bytes=await readBlob(file.id,path.join(FILES,file.storedName));
+    if(!bytes)return error(res,404,'Arquivo indisponível.');
     return serveBlob(req,res,bytes,headers);
   }
   const audioMatch=p.match(/^\/api\/audio\/([0-9a-f-]{36})$/);

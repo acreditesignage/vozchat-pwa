@@ -212,7 +212,7 @@ function connectEvents(){
 async function openRoom(roomId){if(current!==roomId){stopLiveRadio();}current=roomId;$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();}catch(err){toast(err.message);} }
 function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;$('#headerAvatar').textContent=avatar(r.name);}
 function renderMessages(){const list=$('#messages');list.replaceChildren();if(!messages.length){const msg=document.createElement('div');msg.className='mini-welcome';msg.textContent=current&&rooms.find(r=>r.id===current)?.isDirect?'Conversa iniciada ✨\nDiga oi para começar.':'Conversa iniciada ✨\nCompartilhe o convite para outras pessoas entrarem e começarem a trocar mensagens.';list.append(msg);}let lastDay='';for(const m of messages){const key=day(m.createdAt);if(key!==lastDay){const divider=document.createElement('div');divider.className='day-divider';divider.textContent=key;list.append(divider);lastDay=key;}renderMessage(m);}scrollDown();}
-function formatSize(size){if(size<1024)return size+' B';if(size<1048576)return (size/1024).toFixed(0)+' KB';return (size/1048576).toFixed(1)+' MB';}
+function formatSize(size){if(size<1024)return size+' B';if(size<1048576)return (size/1024).toFixed(0)+' KB';if(size<1073741824)return (size/1048576).toFixed(1)+' MB';return (size/1073741824).toFixed(2)+' GB';}
 function renderMessage(m){
   const row=document.createElement('div');row.className='bubble-row '+(m.senderId===me.id?'mine':'other');row.dataset.id=m.id;
   if(m.senderId!==me.id){const av=document.createElement('div');av.className='sender-avatar';av.textContent=avatar(m.senderName);row.append(av);}
@@ -708,7 +708,9 @@ $('#logout').addEventListener('click',async()=>{
 $('#composer').addEventListener('submit',async e=>{e.preventDefault();const input=$('#msgInput');const content=input.value.trim();if(!content||!current)return;const roomId=current;input.value='';input.style.height='auto';try {await api(`/api/rooms/${roomId}/messages`,{method:'POST',data:{text:content}});}catch(err){input.value=content;toast(err.message);}});
 // Envio de mídias e arquivos. A seleção é feita pelo navegador (câmera nativa no celular).
 const MEDIA_MAX=25*1024*1024;
-const ALLOWED_EXTENSIONS=/\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|webm|m4v|3gp|pdf|txt|csv|docx?|xlsx?|pptx?|zip)$/i;
+const LARGE_MEDIA_MAX=100*1024*1024;
+let uploadController=null,activeTransferId=null,uploadCanceled=false;
+const ALLOWED_EXTENSIONS=/\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|webm|m4v|3gp|pdf|txt|csv|docx?|xlsx?|pptx?|zip|7z|rar|odt|ods|odp|dcm|dwg|dxf)$/i;
 const emojiList=['😀','😃','😂','🤣','😊','😍','🥰','😘','😎','🤩','🥳','😢','😭','🥹','😡','😮','👍','👎','👏','🙌','🙏','🤝','💪','❤️','💜','💙','🔥','✨','🎉','💯','👀','🤗','😉','😅','🤔','👌','✅','📷','🎬','🌹','🥂','😴','🙈','😁','😇','🤍','💚','💛'];
 function closeTools(){ $('#attachmentPicker').hidden=true;$('#emojiPicker').hidden=true;$('#attachButton').setAttribute('aria-expanded','false');$('#emojiButton').setAttribute('aria-expanded','false'); }
 $('#attachButton').addEventListener('click',()=>{const show=$('#attachmentPicker').hidden;closeTools();$('#attachmentPicker').hidden=!show;$('#attachButton').setAttribute('aria-expanded',String(show));});
@@ -721,7 +723,7 @@ function cleanupPreview(){if(previewUrl){URL.revokeObjectURL(previewUrl);preview
 function selectFiles(selected){
   if(!selected.length)return;
   const files=Array.from(selected);if(files.length>5){toast('Selecione até 5 arquivos por vez.');return;}
-  for(const file of files){if(file.size>MEDIA_MAX){toast('O arquivo '+file.name+' excede 25 MB.');return;}if(!ALLOWED_EXTENSIONS.test(file.name)){toast('Esse tipo de arquivo não é permitido.');return;}}
+  for(const file of files){if(file.size>LARGE_MEDIA_MAX){toast('O arquivo '+file.name+' excede 100 MB.');return;}if(!ALLOWED_EXTENSIONS.test(file.name)){toast('Esse tipo de arquivo não é permitido.');return;}}
   cleanupPreview();pendingFiles=files;pendingRoom=current;
   const preview=$('#uploadPreview');
   if(files.length===1&&files[0].type.startsWith('image/')&&!/\.hei[cf]$/i.test(files[0].name)){
@@ -736,19 +738,113 @@ function selectFiles(selected){
 for(const el of Object.values(inputs)){ $(el).addEventListener('change',e=>{selectFiles(e.target.files);e.target.value='';}); }
 $('#fileDialog').addEventListener('cancel',e=>{if(uploading)e.preventDefault();});
 $('#fileDialog').addEventListener('close',()=>{if(!uploading)cleanupPreview();});
+function transferUpdate(done,total,message){
+  $('#transferProgress').hidden=false;
+  $('#transferBar').style.width=Math.max(0,Math.min(100,Math.round(done/Math.max(1,total)*100)))+'%';
+  $('#transferText').textContent=message+' · '+formatSize(done)+' de '+formatSize(total);
+}
+async function transferApi(url,{method='POST',data,raw,part,signal}={}){
+  const response=await fetch(url,{
+    method,credentials:'same-origin',
+    signal,
+    headers:raw===undefined?{'Content-Type':'application/json'}:{'Content-Type':'application/octet-stream','X-Part-Index':String(part)},
+    body:raw===undefined?JSON.stringify(data||{}):raw
+  });
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok)throw Error(result.error||'Falha na transferência.');
+  return result;
+}
+async function sendLargeFile(file,roomId,report){
+  let mime=file.type.split(';')[0].toLowerCase();
+  if(!mime)mime='application/octet-stream';
+  const start=await transferApi('/api/transfers/start',{data:{roomId,name:file.name,mime,size:file.size}});
+  activeTransferId=start.uploadId;
+  let received=start.received||0;
+  const chunkSize=start.chunkBytes;
+  try{
+    while(received<start.chunks){
+      if(uploadCanceled)throw Error('Envio cancelado.');
+      const offset=received*chunkSize,part=file.slice(offset,Math.min(file.size,offset+chunkSize));
+      let attempt=0,posted=false;
+      while(!posted){
+        attempt++;
+        uploadController=new AbortController();
+        try{
+          const updated=await transferApi('/api/transfers/'+start.uploadId+'/chunk',{
+            raw:part,part:received,signal:uploadController.signal
+          });
+          received=updated.received;posted=true;
+        }catch(err){
+          if(uploadCanceled)throw Error('Envio cancelado.');
+          if(attempt>=3)throw err;
+          // Rede interrompida após salvar: consultar posição antes de repetir.
+          const state=await api('/api/transfers/'+start.uploadId+'/status');
+          if(state.received>received){received=state.received;posted=true;}
+          else await new Promise(resolve=>setTimeout(resolve,attempt*400));
+        }
+      }
+      report(Math.min(file.size,received*chunkSize));
+    }
+    await transferApi('/api/transfers/'+start.uploadId+'/finish',{data:{}});
+    activeTransferId=null;
+  }catch(err){
+    // Não deixar partes órfãs em uma transferência cancelada/falho.
+    try{await transferApi('/api/transfers/'+start.uploadId+'/cancel',{data:{}});}catch{}
+    activeTransferId=null;
+    throw err;
+  }finally{uploadController=null;}
+}
+$('#cancelUpload').addEventListener('click',()=>{
+  if(!uploading)return;
+  uploadCanceled=true;
+  uploadController?.abort();
+  $('#transferText').textContent='Cancelando envio...';
+});
 $('#confirmUpload').addEventListener('click',async()=>{
   if(uploading||!pendingFiles.length||!pendingRoom)return;
-  uploading=true;const button=$('#confirmUpload');button.disabled=true;const files=[...pendingFiles], roomId=pendingRoom;
+  uploading=true;uploadCanceled=false;
+  const button=$('#confirmUpload');button.disabled=true;
+  $('#cancelUpload').hidden=false;$('#transferProgress').hidden=false;
+  const files=[...pendingFiles],roomId=pendingRoom;
+  const total=files.reduce((sum,f)=>sum+f.size,0);
+  let completed=0,sentAll=false;
   try{
     for(let i=0;i<files.length;i++){
-      const file=files[i];button.textContent=`Enviando ${i+1} de ${files.length}...`;
-      let mime=file.type.split(';')[0].toLowerCase();if(!mime)mime='application/octet-stream';
-      const response=await fetch(`/api/rooms/${roomId}/files`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':mime,'X-File-Name':encodeURIComponent(file.name)},body:file});
-      const data=await response.json().catch(()=>({}));if(!response.ok)throw Error(data.error||'Falha ao enviar o arquivo.');
+      if(uploadCanceled)throw Error('Envio cancelado.');
+      const file=files[i];
+      button.textContent='Enviando '+(i+1)+' de '+files.length+'...';
+      const progress=bytes=>transferUpdate(completed+bytes,total,'Enviando '+file.name);
+      progress(0);
+      if(file.size>MEDIA_MAX){
+        await sendLargeFile(file,roomId,progress);
+      }else{
+        let mime=file.type.split(';')[0].toLowerCase();
+        if(!mime)mime='application/octet-stream';
+        uploadController=new AbortController();
+        const response=await fetch('/api/rooms/'+roomId+'/files',{
+          method:'POST',credentials:'same-origin',signal:uploadController.signal,
+          headers:{'Content-Type':mime,'X-File-Name':encodeURIComponent(file.name)},body:file
+        });
+        const data=await response.json().catch(()=>({}));
+        if(!response.ok)throw Error(data.error||'Falha ao enviar o arquivo.');
+      }
+      completed+=file.size;
+      transferUpdate(completed,total,'Concluído');
     }
-    $('#fileDialog').close();toast(files.length===1?'Arquivo enviado!':'Arquivos enviados!');
-  }catch(err){toast(err.message||'Erro ao enviar arquivo.');}
-  finally{uploading=false;button.disabled=false;button.textContent='Enviar arquivo →';cleanupPreview();}
+    sentAll=true;
+    $('#fileDialog').close();
+    toast(files.length===1?'Arquivo enviado!':'Arquivos enviados!');
+  }catch(err){
+    toast(uploadCanceled?'Transferência cancelada.':err.message||'Falha ao enviar arquivo.');
+  }finally{
+    uploading=false;uploadCanceled=false;uploadController=null;activeTransferId=null;
+    button.disabled=false;button.textContent='Enviar arquivo →';
+    $('#cancelUpload').hidden=true;
+    $('#transferProgress').hidden=true;
+    $('#transferBar').style.width='0%';
+    if(!sentAll&&completed)toast('Os arquivos concluídos permanecem na conversa.');
+    cleanupPreview();
+  }
 });
 $('#msgInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#composer').requestSubmit();}});
 $('#msgInput').addEventListener('input',e=>{e.target.style.height='auto';e.target.style.height=Math.min(136,e.target.scrollHeight)+'px';});
@@ -913,6 +1009,35 @@ window.addEventListener('pagehide',()=>{
   void fetch('/api/calls/'+id+'/end',{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},body:'{}',keepalive:true}).catch(()=>{});
 });
+
+
+const compactSettingKey='vozchat_compact_rooms';
+function applyCompact(){
+  const enabled=localStorage.getItem(compactSettingKey)==='yes';
+  $('#settingsCompact').checked=enabled;
+  $('#app').classList.toggle('compact-rooms',enabled);
+}
+$('#settingsButton').addEventListener('click',async()=>{
+  $('#settingsUserId').textContent='Seu ID: '+(me?.publicId||me?.username||'--');
+  applyCompact();openDialog('settingsDialog');
+  try{
+    const result=await api('/api/transfers/config');
+    $('#settingsStorageStatus').textContent='Até '+formatSize(result.maxBytes)+
+      ' por arquivo · espaço disponível para envios grandes: '+formatSize(result.availableBytes);
+  }catch{
+    $('#settingsStorageStatus').textContent='Capacidade indisponível no momento.';
+  }
+});
+$('#settingsNotifications').addEventListener('click',()=>{
+  $('#settingsDialog').close();
+  $('#notificationsButton').click();
+});
+$('#settingsCopyId').addEventListener('click',()=>$('#copyMyId').click());
+$('#settingsCompact').addEventListener('change',event=>{
+  localStorage.setItem(compactSettingKey,event.target.checked?'yes':'no');
+  applyCompact();
+});
+applyCompact();
 
 window.addEventListener('online',()=>{$('#offline').hidden=true;toast('Conectado novamente.');});window.addEventListener('offline',()=>{$('#offline').hidden=false;});$('#offline').hidden=navigator.onLine;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;});

@@ -223,3 +223,21 @@ body{
   .call-start-button{min-width:35px;width:35px;height:35px;flex:none}
   .call-person{min-height:120px}
 }
+
+/* Preferências acessíveis e progresso de arquivos grandes. */
+.settings-dialog h2{margin-bottom:8px}
+.settings-section{display:flex;flex-direction:column;align-items:stretch;gap:9px;padding:14px 0;border-top:1px solid #e9e9f2}
+.settings-section strong{font-size:14px;color:#34394b}
+.settings-section p{margin:0;font-size:12px;line-height:1.55;color:#7b8292}
+.settings-section .secondary{width:100%}
+.settings-switch{display:flex;align-items:center;justify-content:space-between;gap:14px;font-size:14px;color:#333747;font-weight:700;min-height:47px}
+.settings-switch span{flex:1}
+.settings-switch small{display:block;font-size:11px;color:#8790a1;font-weight:400;margin-top:4px}
+.settings-switch input{width:23px;height:23px;accent-color:#705cf7;flex:none}
+.app.compact-rooms .room-item{padding-top:8px!important;padding-bottom:8px!important;min-height:56px!important}
+.app.compact-rooms .room-list{row-gap:1px}
+.transfer-progress{width:100%;margin:11px 0}
+.transfer-meter{width:100%;height:9px;border-radius:20px;overflow:hidden;background:#e9e7f5}
+.transfer-meter span{display:block;height:100%;width:0;background:linear-gradient(90deg,#7761ee,#4dc0a1);transition:width .15s}
+#transferText{margin:7px 0 1px;color:#696e86;font-size:12px;overflow-wrap:anywhere}
+.transfer-cancel{width:100%;margin-top:9px;min-height:44px}
