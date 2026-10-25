@@ -123,11 +123,52 @@
     <div class="dialog-head"><div class="dialog-icon">🎮</div><button type="button" class="dialog-close" data-close="playHistoryDialog" aria-label="Fechar histórico de jogos">×</button></div>
     <h2>VozChat Play</h2>
     <p>Suas partidas e seus contatos neste perfil. Fechar a conversa não apaga o histórico.</p>
-    <div id="playHistoryStats" class="play-history-stats" aria-live="polite"></div>
-    <h3>Partidas anteriores</h3>
-    <div id="playHistoryList" class="play-history-list" aria-live="polite"><p class="pending-empty">Carregando partidas...</p></div>
-    <h3>Jogar com um contato</h3>
-    <div id="playHistoryContacts" class="play-history-contacts"></div>
+    <div class="play-hub-intro"><strong>Escolha seu jogo</strong><small>Você pode jogar sozinho ou convidar um contato aprovado.</small></div>
+    <div class="play-hub-games">
+      <div class="play-hub-game-card">
+        <div class="play-hub-game-art play-hub-neon-art">✦ ◉ ◆</div>
+        <strong>Labirinto Neon</strong><small>Colete luzes e escape dos drones.</small>
+        <div class="play-hub-game-actions">
+          <button id="playHubSoloNeon" type="button" class="play-hub-primary">▶ Jogar sozinho</button>
+          <button id="playHubDuoNeon" type="button">👥 Com contato</button>
+        </div>
+      </div>
+      <div class="play-hub-game-card">
+        <div class="play-hub-game-art play-hub-tic-art">✕ ○ ✕</div>
+        <strong>Jogo da Velha</strong><small>Desafie o computador ou um amigo.</small>
+        <div class="play-hub-game-actions">
+          <button id="playHubSoloTic" type="button" class="play-hub-primary">▶ Jogar sozinho</button>
+          <button id="playHubDuoTic" type="button">👥 Com contato</button>
+        </div>
+      </div>
+    </div>
+    <section id="playHubContactsSection" class="play-hub-contact-section" hidden>
+      <h3 id="playHubContactsTitle">Escolha um contato</h3>
+      <div id="playHistoryContacts" class="play-history-contacts"></div>
+      <button id="playHubAddContact" type="button" class="play-hub-add-contact">+ Convidar contato por ID</button>
+    </section>
+    <details id="playHistoryDetails" class="play-history-details">
+      <summary>Histórico de partidas <span id="playHistoryCount">0</span></summary>
+      <div id="playHistoryStats" class="play-history-stats" aria-live="polite"></div>
+      <div id="playHistoryList" class="play-history-list" aria-live="polite"><p class="pending-empty">Carregando partidas...</p></div>
+    </details>
+  </dialog>
+  <dialog id="playSoloDialog" class="dialog play-solo-dialog" aria-label="VozChat Play: modo individual">
+    <div class="dialog-head"><div class="dialog-icon">🎮</div><button id="playSoloClose" type="button" class="dialog-close" aria-label="Fechar jogo">×</button></div>
+    <div class="play-solo-head"><h2 id="playSoloTitle">VozChat Play</h2><span id="playSoloScore">0 pontos</span></div>
+    <p id="playSoloStatus" class="play-solo-status" aria-live="polite"></p>
+    <canvas id="playSoloCanvas" width="510" height="390" hidden aria-label="Labirinto Neon individual"></canvas>
+    <div id="playSoloTicBoard" class="play-solo-tic-board" role="grid" aria-label="Jogo da Velha individual" hidden></div>
+    <div id="playSoloDpad" class="play-solo-dpad" aria-label="Controles do labirinto" hidden>
+      <button type="button" data-solo-direction="up" aria-label="Mover para cima">▲</button>
+      <div>
+        <button type="button" data-solo-direction="left" aria-label="Mover para esquerda">◀</button>
+        <button type="button" data-solo-direction="down" aria-label="Mover para baixo">▼</button>
+        <button type="button" data-solo-direction="right" aria-label="Mover para direita">▶</button>
+      </div>
+    </div>
+    <div class="play-solo-actions"><button id="playSoloRestart" type="button">↻ Novo jogo</button><button id="playSoloBack" type="button">Escolher outro jogo</button></div>
+    <p class="play-solo-note">Modo individual: não exige contato nem compartilha seus resultados com outras pessoas.</p>
   </dialog>
   <dialog id="groupManageDialog" class="dialog group-dialog">
     <div class="dialog-head"><div class="dialog-icon">👥</div><button class="dialog-close" type="button" data-close="groupManageDialog" aria-label="Fechar">×</button></div>
@@ -257,6 +298,7 @@
   <script defer src="/install-guide.js"></script>
   <script defer src="/call-ringtone.js"></script>
   <script defer src="/neon-maze-ui.js"></script>
+  <script defer src="/play-solo.js"></script>
   <script defer src="/play-history.js"></script>
   <script type="module" src="/app.js"></script>
 </body></html>
