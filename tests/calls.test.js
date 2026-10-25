@@ -80,7 +80,7 @@ test('chamadas privadas: criar, atender, autenticar câmera/microfone, recusar e
   assert.equal(jwt.video.roomJoin,true);
   assert.equal(jwt.video.canSubscribe,true);
   assert.equal(jwt.video.canPublish,true);
-  assert.deepEqual(jwt.video.canPublishSources,[2,1]);
+  assert.deepEqual(jwt.video.canPublishSources,['microphone','camera']);
   assert.ok(jwt.exp>jwt.iat);
   const ended=await req('POST',uri+'/end',{},b.cookie);
   assert.equal(ended.status,200);
