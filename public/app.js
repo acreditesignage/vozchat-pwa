@@ -3,6 +3,8 @@ let me=null, rooms=[], current=null, messages=[], events=null, isRegister=false,
 const joinParam = new URLSearchParams(location.search).get('join');
 const openParam = new URLSearchParams(location.search).get('open');
 const talkParam = new URLSearchParams(location.search).get('talk');
+const callParam = new URLSearchParams(location.search).get('call');
+let currentCall=null,callEngine=null,joiningCall=false,callAttempt=0;
 const avatar = name => (name||'?').slice(0,1).toUpperCase();
 const time = iso => new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 const day = iso => new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
@@ -14,7 +16,7 @@ function sortRooms() {rooms.sort((a,b)=>new Date(b.last?.createdAt||b.createdAt)
 function authMode(register) {isRegister=register;$('#nameField').hidden=!register;$('#realName').required=register;$('#usernameField').hidden=register;$('#username').required=!register;$('#authDescription').textContent=register?'Escolha como quer ser chamado. Seu ID exclusivo será criado automaticamente.':'Entre com seu ID numérico (ou usuário antigo) e sua senha.';$('#authTitle').textContent=register?'Crie sua conta':'Entre na sua conta';$('#authSubmit').innerHTML=register?'Criar conta <span>→</span>':'Entrar <span>→</span>';$('#authSwitchLabel').firstChild.textContent=register?'Já possui uma conta? ':'Ainda não tem conta? ';$('#authSwitch').textContent=register?'Entrar':'Criar conta';$('#password').autocomplete=register?'new-password':'current-password';}
 $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
 $('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#authSubmit');btn.disabled=true;try {const creating=isRegister;const result=await api(creating?'/api/register':'/api/login',{method:'POST',data:creating?{name:$('#realName').value,password:$('#password').value}:{username:$('#username').value,password:$('#password').value}});$('#password').value='';await start();if(creating&&result.user?.publicId){$('#welcomePublicId').textContent=result.user.publicId;openDialog('welcomeDialog');}}catch(err){toast(err.message);}finally{btn.disabled=false;}});
-async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);$('#meAvatar').textContent=avatar(me.name);renderRooms();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
+async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);$('#meAvatar').textContent=avatar(me.name);renderRooms();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
 function upsertRoom(r) {let idx=rooms.findIndex(x=>x.id===r.id);if(idx<0)rooms.push(r);else rooms[idx]={...rooms[idx],...r};sortRooms();renderRooms();if(current===r.id)renderHeader();}
 function renderRooms(){const list=$('#roomList');list.replaceChildren();const term=$('#search').value.trim().toLowerCase();const filtered=rooms.filter(x=>x.name.toLowerCase().includes(term)||String(x.peerId||'').includes(term));if(!filtered.length){const el=document.createElement('p');el.className='list-empty';el.textContent=term?'Nenhuma conversa encontrada.':'Nenhuma conversa ainda. Toque em + para criar a primeira.';list.append(el);return;}for(const room of filtered){const btn=document.createElement('button');btn.type='button';btn.className='room-item'+(room.id===current?' active':'');const ic=document.createElement('div');ic.className='room-icon';ic.textContent=avatar(room.name);const info=document.createElement('div');info.className='room-info';const top=document.createElement('div');top.className='room-name';const title=document.createElement('strong');title.textContent=room.name;const small=document.createElement('small');small.textContent=room.last?time(room.last.createdAt):'';top.append(title,small);const preview=document.createElement('div');preview.className='room-preview';preview.textContent=room.last?`${room.last.senderName}: ${room.last.type==='flowtalk'?'📻 FlowTalk':room.last.type==='audio'?'🎤 Mensagem de voz':({image:'📷 Foto',video:'🎬 Vídeo',file:'📎 Arquivo'}[room.last.type]||room.last.text)}`:'Conversa criada · toque para abrir';info.append(top,preview);btn.append(ic,info);btn.addEventListener('click',()=>openRoom(room.id));list.append(btn);}}
 $('#search').addEventListener('input',renderRooms);
@@ -164,6 +166,29 @@ function connectEvents(){
         button.classList.add('talk-incoming');
         setTimeout(()=>button.classList.remove('talk-incoming'),12000);
       }
+    }
+  });
+  events.addEventListener('call-incoming',event=>{
+    const incoming=JSON.parse(event.data);
+    if(!me||!rooms.some(r=>r.id===incoming.roomId))return;
+    if(currentCall&&currentCall.id!==incoming.id)return;
+    if(currentCall?.id===incoming.id)return;
+    currentCall=incoming;
+    presentCall(incoming,true);
+    if(document.visibilityState==='visible'){soundAlert();vibrateAlert();}
+  });
+  events.addEventListener('call-update',event=>{
+    const status=JSON.parse(event.data);
+    if(currentCall?.id!==status.id)return;
+    currentCall=status;
+    if(!$('#callOverlay').hidden&&!$('#callIncomingActions').hidden)return;
+    if(!$('#callOverlay').hidden&&!callEngine)$('#callStatus').textContent=status.state==='active'?'Chamada atendida · conectando…':'Chamando…';
+  });
+  events.addEventListener('call-ended',event=>{
+    const stopped=JSON.parse(event.data);
+    if(currentCall?.id===stopped.id){
+      void closeCallUI(false);
+      toast('Chamada encerrada.');
     }
   });
   events.addEventListener('room-removed',event=>{
@@ -732,6 +757,163 @@ function updateRecordClock(){const sec=Math.floor((Date.now()-recordingStart)/10
 async function startRecord(){if(!current) return;if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){toast('Seu navegador não permite gravação de áudio.');return;}try{const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});const type=supportedMime();recorder=new MediaRecorder(stream,type?{mimeType:type}:{});pieces=[];recordedCanceled=false;recorder.ondataavailable=e=>{if(e.data.size)pieces.push(e.data);};recorder.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());clearInterval(recordingTicker);$('#recording').hidden=true;$('#micButton').classList.remove('recording-active');$('#micButton').setAttribute('aria-label','Iniciar gravação');if(recordedCanceled)return;const mime=recorder.mimeType.split(';')[0]||'audio/webm';const blob=new Blob(pieces,{type:mime});if(blob.size<100){toast('Áudio vazio. Tente novamente.');return;}const roomId=current;$('#micButton').disabled=true;try {const result=await fetch(`/api/rooms/${roomId}/audio`,{method:'POST',headers:{'Content-Type':mime,'X-Audio-Duration':String((Date.now()-recordingStart)/1000)},body:blob,credentials:'same-origin'});const data=await result.json();if(!result.ok)throw new Error(data.error||'Erro ao enviar áudio.');toast('Mensagem de voz enviada!');}catch(err){toast(err.message);}finally{$('#micButton').disabled=false;}};recorder.start(250);recordingStart=Date.now();$('#recording').hidden=false;$('#micButton').classList.add('recording-active');$('#micButton').setAttribute('aria-label','Parar e enviar gravação');updateRecordClock();recordingTicker=setInterval(updateRecordClock,500);}catch(err){toast(err.name==='NotAllowedError'?'Permita o acesso ao microfone nas configurações do navegador.':'Não foi possível iniciar o microfone.');}}
 function stopRecord(cancel=false){if(!recorder||recorder.state!=='recording')return;recordedCanceled=cancel;recorder.stop();}
 $('#micButton').addEventListener('click',()=>recorder?.state==='recording'?stopRecord():startRecord());$('#cancelAudio').addEventListener('click',()=>stopRecord(true));
+
+// Chamadas ao vivo de áudio e vídeo: o FlowTalk PTT permanece separado.
+function presentCall(call,incoming){
+  const room=rooms.find(r=>r.id===call.roomId);
+  const name=room?.name||call.callerName||'Contato';
+  $('#callOverlay').hidden=false;
+  $('#callTitle').textContent=(call.kind==='video'?'Vídeo · ':'Áudio · ')+name;
+  $('#callStatus').textContent=incoming?'Chamada recebida de '+call.callerName:'Chamando…';
+  $('#callIncomingActions').hidden=!incoming;
+  $('#callActiveActions').hidden=incoming;
+  $('#callCamera').hidden=call.kind!=='video';
+  $('#callFlip').hidden=call.kind!=='video';
+  $('#callEnd').hidden=incoming;
+  $('#callRemoteVideos').hidden=call.kind!=='video';
+  $('#callLocalVideo').hidden=call.kind!=='video';
+  $('#callRemoteVideos').replaceChildren();
+  $('#callLocalVideo').replaceChildren();
+  $('#callAudios').replaceChildren();
+  $('#callMute').textContent='🎙 Microfone';
+  $('#callMute').setAttribute('aria-pressed','false');
+  $('#callCamera').textContent='📷 Câmera';
+  $('#callCamera').setAttribute('aria-pressed','true');
+}
+async function closeCallUI(notifyServer=true){
+  callAttempt++;
+  const call=currentCall;
+  currentCall=null;
+  const engine=callEngine;callEngine=null;
+  joiningCall=false;
+  $('#callOverlay').hidden=true;
+  $('#callIncomingActions').hidden=true;
+  $('#callActiveActions').hidden=true;
+  $('#callLocalVideo').replaceChildren();
+  $('#callRemoteVideos').replaceChildren();
+  $('#callAudios').replaceChildren();
+  if(engine)await engine.close().catch(()=>{});
+  if(call&&notifyServer){
+    try{await api('/api/calls/'+call.id+'/end',{method:'POST',data:{}});}
+    catch(err){/* A sessão pode ter encerrado em outro aparelho. */}
+  }
+}
+async function connectCurrentCall(){
+  const call=currentCall;
+  if(!call||joiningCall)return;
+  joiningCall=true;
+  const generation=++callAttempt;
+  $('#callIncomingActions').hidden=true;
+  $('#callActiveActions').hidden=false;
+  $('#callEnd').hidden=false;
+  $('#callStatus').textContent='Conectando áudio seguro…';
+  stopLiveRadio();
+  try{
+    const {joinLiveCall}=await import('/call.bundle.js');
+    if(generation!==callAttempt||currentCall?.id!==call.id)return;
+    const engine=await joinLiveCall({
+      call,api,
+      mount:{remote:$('#callRemoteVideos'),local:$('#callLocalVideo'),audio:$('#callAudios')},
+      onState:status=>{if(currentCall?.id===call.id)$('#callStatus').textContent=status;},
+      onFailure:status=>{if(currentCall?.id===call.id){toast(status);void closeCallUI();}}
+    });
+    if(generation!==callAttempt||currentCall?.id!==call.id){
+      await engine.close();return;
+    }
+    callEngine=engine;
+    $('#callStatus').textContent='Conectado · chamada ao vivo';
+  }catch(err){
+    if(generation===callAttempt&&currentCall?.id===call.id){
+      toast(err?.message||'Não foi possível conectar a chamada.');
+      void closeCallUI();
+    }
+  }finally{if(generation===callAttempt)joiningCall=false;}
+}
+async function startCall(kind){
+  if(!current||!me)return;
+  if(currentCall){toast('Encerre a chamada atual antes de iniciar outra.');return;}
+  const a=$('#callAudioButton'),v=$('#callVideoButton');
+  a.disabled=true;v.disabled=true;
+  try{
+    const result=await api('/api/calls/start',{method:'POST',data:{roomId:current,kind}});
+    currentCall=result.call;
+    presentCall(result.call,false);
+    await connectCurrentCall();
+  }catch(err){toast(err.message||'Não foi possível iniciar a chamada.');}
+  finally{a.disabled=false;v.disabled=false;}
+}
+async function syncPendingCalls(){
+  if(!me||currentCall)return;
+  try{
+    const result=await api('/api/calls/pending');
+    if(currentCall||!result.calls?.length)return;
+    const prioritized=result.calls.find(c=>c.id===callParam)||result.calls.find(c=>c.callerId!==me.id)||result.calls[0];
+    if(!prioritized)return;
+    currentCall=prioritized;
+    // Depois de recarregar, exigir um toque explícito para acessar câmera e microfone.
+    presentCall(prioritized,true);
+    if(prioritized.callerId===me.id){
+      $('#callStatus').textContent='Retomar sua chamada';
+      $('#callAccept').textContent='Retomar';
+    }else $('#callAccept').textContent='Atender';
+  }catch{}
+}
+$('#callAudioButton').addEventListener('click',()=>void startCall('audio'));
+$('#callVideoButton').addEventListener('click',()=>void startCall('video'));
+$('#callAccept').addEventListener('click',async()=>{
+  const call=currentCall;if(!call)return;
+  const btn=$('#callAccept');btn.disabled=true;
+  try{
+    await api('/api/calls/'+call.id+'/accept',{method:'POST',data:{}});
+    if(currentCall?.id===call.id)await connectCurrentCall();
+  }catch(err){toast(err.message);void closeCallUI(false);}
+  finally{btn.disabled=false;btn.textContent='Atender';}
+});
+$('#callDecline').addEventListener('click',async()=>{
+  const call=currentCall;if(!call)return;
+  await closeCallUI(false);
+  const action=call.callerId===me?.id?'end':'decline';
+  try{await api('/api/calls/'+call.id+'/'+action,{method:'POST',data:{}});}
+  catch(err){toast(err.message);}
+});
+$('#callEnd').addEventListener('click',()=>void closeCallUI());
+$('#callMute').addEventListener('click',async()=>{
+  if(!callEngine)return;
+  const button=$('#callMute');button.disabled=true;
+  try{
+    const enabled=await callEngine.mute();
+    button.textContent=enabled?'🎙 Microfone':'🔇 Silenciado';
+    button.setAttribute('aria-pressed',String(!enabled));
+  }catch(err){toast('Não foi possível alterar o microfone.');}
+  finally{button.disabled=false;}
+});
+$('#callCamera').addEventListener('click',async()=>{
+  if(!callEngine)return;
+  const button=$('#callCamera');button.disabled=true;
+  try{
+    const enabled=await callEngine.camera();
+    button.textContent=enabled?'📷 Câmera':'📷 Câmera desligada';
+    button.setAttribute('aria-pressed',String(enabled));
+  }catch(err){toast('Não foi possível alterar a câmera.');}
+  finally{button.disabled=false;}
+});
+$('#callFlip').addEventListener('click',async()=>{
+  if(!callEngine)return;
+  try{await callEngine.flip();}catch(err){toast('Não foi possível virar a câmera.');}
+});
+$('#callSpeaker').addEventListener('click',async()=>{
+  if(!callEngine)return;
+  try{await callEngine.startAudio();toast('Alto-falante ativado.');}
+  catch{toast('Toque novamente para ativar o áudio.');}
+});
+window.addEventListener('pagehide',()=>{
+  if(!currentCall)return;
+  const id=currentCall.id;
+  void closeCallUI(false);
+  void fetch('/api/calls/'+id+'/end',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:'{}',keepalive:true}).catch(()=>{});
+});
+
 window.addEventListener('online',()=>{$('#offline').hidden=true;toast('Conectado novamente.');});window.addEventListener('offline',()=>{$('#offline').hidden=false;});$('#offline').hidden=navigator.onLine;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;});
 $('#installButton').addEventListener('click',async()=>{if(deferredInstall){deferredInstall.prompt();await deferredInstall.userChoice;deferredInstall=null, pendingFiles=[],pendingRoom=null,previewUrl=null,uploading=false;}else{toast(/iPhone|iPad|iPod/i.test(navigator.userAgent)?'No Safari, toque em Compartilhar → Adicionar à Tela de Início.':'No menu do navegador, selecione Instalar app ou Adicionar à tela inicial.');}});

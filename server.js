@@ -226,6 +226,68 @@ function limitContactSearch(userId){
   return false;
 }
 function tooMany(ip) { const now=Date.now(); let a=loginAttempts.get(ip)||[]; a=a.filter(t=>now-t<15*60*1000); a.push(now); loginAttempts.set(ip,a); return a.length>25; }
+// Chamadas de áudio/vídeo efêmeras: não gravam conteúdo e não alteram o histórico do chat.
+// A sinalização é por sessão autenticada (SSE + Web Push); a mídia é LiveKit.
+const activeCalls=new Map();
+const CALL_RING_MS=60000;
+const CALL_MAX_MS=2*60*60*1000;
+const CALL_LIMIT=150;
+function callView(call){
+  return {id:call.id,roomId:call.roomId,kind:call.kind,callerName:call.callerName,
+    callerId:call.callerId,state:call.state,createdAt:call.createdAt,
+    expiresAt:call.expiresAt,accepted:call.accepted.size};
+}
+function visibleCall(call,uid){
+  return call&&call.invitees.includes(uid)&&!call.declined.has(uid)&&call.expiresAt>Date.now();
+}
+function publishCall(call,type,users=call.invitees){
+  for(const uid of users)push([uid],type,callView(call));
+}
+function finishCall(call,reason='ended'){
+  if(!activeCalls.has(call.id))return;
+  activeCalls.delete(call.id);
+  if(call.timer)clearTimeout(call.timer);
+  publishCall(call,'call-ended');
+  if(livekitRoomService)void livekitRoomService.deleteRoom('vozchat-call-'+call.id)
+    .catch(()=>{});
+}
+async function alertIncomingCall(call){
+  if(!webPush)return;
+  const recipients=new Set(call.invitees.filter(uid=>uid!==call.callerId));
+  const subscriptions=(db.pushSubscriptions||[]).filter(p=>recipients.has(p.uid));
+  if(!subscriptions.length)return;
+  const title=call.kind==='video'?'📹 Chamada de vídeo':'📞 Chamada de áudio';
+  const payload=JSON.stringify({title:call.callerName+' · '+title,
+    body:'Toque para atender no VozChat.',kind:'call',roomId:call.roomId,
+    callId:call.id,tag:'vozchat-call-'+call.id});
+  let dirty=false;
+  await Promise.allSettled(subscriptions.map(async record=>{
+    try{await webPush.sendNotification(record.subscription,payload,
+      {TTL:60,urgency:'high',timeout:7000});}
+    catch(e){
+      if(e?.statusCode===404||e?.statusCode===410){
+        db.pushSubscriptions=db.pushSubscriptions.filter(p=>p!==record);dirty=true;
+      }else console.warn('Chamada push falhou',e?.statusCode||'network');
+    }
+  }));
+  if(dirty)await save();
+}
+function findActiveCall(idValue){
+  const call=activeCalls.get(idValue);
+  if(call&&call.expiresAt<=Date.now()){finishCall(call,'expired');return null;}
+  return call||null;
+}
+function endCallsForRoom(roomId){
+  for(const call of [...activeCalls.values()])if(call.roomId===roomId)finishCall(call);
+}
+function rejectCallsForMember(roomId,uid){
+  for(const call of [...activeCalls.values()]){
+    if(call.roomId!==roomId||!call.invitees.includes(uid))continue;
+    if(uid===call.callerId)finishCall(call);
+    else {call.declined.add(uid);call.accepted.delete(uid);push([uid],'call-ended',callView(call));}
+  }
+}
+
 async function api(req,res,url) {
   const p=url.pathname, method=req.method;
   if(method==='GET' && p==='/api/health') return json(res,200,{ok:true,service:'vozchat',storage:pool?'postgres':'local',livekit:livekitConfigured?'configured':'not_configured',time:new Date().toISOString()});
@@ -299,6 +361,74 @@ async function api(req,res,url) {
   }
   if(method==='POST'&&p==='/api/rooms') { const input=JSON.parse((await body(req)).toString('utf8')); const name=String(input.name||'').trim(); if(name.length<2||name.length>60) return error(res,400,'Nome da conversa deve ter de 2 a 60 caracteres.'); const r={id:id(),secret:rand(24),owner:u.id,name,members:[u.id],createdAt:new Date().toISOString()}; db.rooms.push(r); await save(); const view=roomView(r,u.id); push([u.id],'room',view); return json(res,201,{room:view}); }
   if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&!r.directKey&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){r.members.push(u.id);await save();for(const uid of r.members)push([uid],'room',roomView(r,uid));} return json(res,200,{room:roomView(r,u.id)}); }
+
+  if(method==='GET'&&p==='/api/calls/pending'){
+    const calls=[...activeCalls.values()].filter(c=>visibleCall(c,u.id))
+      .map(c=>callView(c));
+    return json(res,200,{calls});
+  }
+  if(method==='POST'&&p==='/api/calls/start'){
+    if(!livekitConfigured)return error(res,503,'Chamadas indisponíveis no momento.');
+    const input=JSON.parse((await body(req,1024)).toString('utf8'));
+    const rid=String(input.roomId||'');
+    const r=member(u.id,rid);
+    if(!r)return error(res,403,'Acesso negado à conversa.');
+    if(!['audio','video'].includes(input.kind))return error(res,400,'Tipo de chamada inválido.');
+    if(r.members.length<2)return error(res,409,'Adicione outra pessoa à conversa.');
+    if(r.members.length>8)return error(res,409,'Chamada em grupo aceita até 8 pessoas.');
+    if([...activeCalls.values()].some(c=>c.roomId===rid&&c.expiresAt>Date.now()))
+      return error(res,409,'Esta conversa já tem uma chamada em andamento.');
+    if([...activeCalls.values()].some(c=>c.invitees.includes(u.id)&&c.expiresAt>Date.now()))
+      return error(res,409,'Você já participa de outra chamada.');
+    if(activeCalls.size>=CALL_LIMIT)return error(res,503,'Muitas chamadas simultâneas. Tente novamente.');
+    const now=Date.now();
+    const call={id:id(),roomId:rid,kind:input.kind,callerId:u.id,callerName:u.name,
+      invitees:[...r.members],accepted:new Set([u.id]),declined:new Set(),
+      state:'ringing',createdAt:new Date(now).toISOString(),expiresAt:now+CALL_RING_MS,
+      timer:null};
+    activeCalls.set(call.id,call);
+    call.timer=setTimeout(()=>{if(call.state==='ringing')finishCall(call,'missed');},CALL_RING_MS);
+    publishCall(call,'call-incoming',r.members.filter(uid=>uid!==u.id));
+    void alertIncomingCall(call).catch(()=>{});
+    return json(res,201,{call:callView(call)});
+  }
+  const callMatch=/^\/api\/calls\/([0-9a-f-]{36})\/(accept|decline|end|token)$/.exec(p);
+  if(method==='POST'&&callMatch){
+    const call=findActiveCall(callMatch[1]);
+    if(!call||!visibleCall(call,u.id))return error(res,404,'Chamada indisponível ou encerrada.');
+    const action=callMatch[2];
+    if(action==='accept'){
+      call.accepted.add(u.id);
+      call.state='active';
+      call.expiresAt=Date.now()+CALL_MAX_MS;
+      if(call.timer){clearTimeout(call.timer);call.timer=null;}
+      call.timer=setTimeout(()=>finishCall(call,'timeout'),CALL_MAX_MS);
+      publishCall(call,'call-update');
+      return json(res,200,{call:callView(call)});
+    }
+    if(action==='decline'){
+      if(u.id===call.callerId)return error(res,403,'Use desligar para cancelar a chamada.');
+      call.declined.add(u.id);call.accepted.delete(u.id);
+      push([u.id],'call-ended',callView(call));
+      publishCall(call,'call-update',call.invitees.filter(uid=>uid!==u.id));
+      if(!call.invitees.some(uid=>uid!==call.callerId&&!call.declined.has(uid)))finishCall(call);
+      return json(res,200,{ok:true});
+    }
+    if(action==='end'){
+      finishCall(call);
+      return json(res,200,{ok:true});
+    }
+    if(action==='token'){
+      if(!call.accepted.has(u.id))return error(res,403,'Atenda a chamada antes de conectar.');
+      const token=new AccessToken(LIVEKIT_API_KEY,LIVEKIT_API_SECRET,{
+        identity:u.id+'-'+rand(8),ttl:'10m'
+      });
+      token.addGrant({roomJoin:true,room:'vozchat-call-'+call.id,canSubscribe:true,
+        canPublish:true,canPublishData:false,canPublishSources:[TrackSource.MICROPHONE,TrackSource.CAMERA]});
+      return json(res,200,{url:LIVEKIT_URL,token:await token.toJwt(),call:callView(call)});
+    }
+  }
+
   if(method==='GET'&&p==='/api/talk/provider') {
     return json(res,200,{provider:livekitConfigured?'livekit':'legacy'});
   }
@@ -344,6 +474,7 @@ async function api(req,res,url) {
       if(target.id===r.owner)return error(res,400,'O criador não pode se remover. Exclua o grupo se necessário.');
       r.members=r.members.filter(uid=>uid!==target.id);
       talkCloseForMember(r.id,target.id);
+      rejectCallsForMember(r.id,target.id);
       void revokeLivekitMember(r.id,target.id);
       r.secret=rand(24); // revoga convites antigos que o participante removido possa ter guardado
       await save();publishGroupChange(r,[target.id]);
@@ -353,6 +484,7 @@ async function api(req,res,url) {
       if(r.owner===u.id)return error(res,409,'O criador não pode sair. Exclua o grupo se necessário.');
       r.members=r.members.filter(uid=>uid!==u.id);
       talkCloseForMember(r.id,u.id);
+      rejectCallsForMember(r.id,u.id);
       void revokeLivekitMember(r.id,u.id);
       r.secret=rand(24);
       await save();publishGroupChange(r,[u.id]);
@@ -363,6 +495,7 @@ async function api(req,res,url) {
       const recipients=[...r.members],audios=db.audios.filter(a=>a.roomId===rid),files=db.files.filter(f=>f.roomId===rid);
       talkCloseRoom(rid);
       void closeLivekitRoom(rid);
+      endCallsForRoom(rid);
       db.rooms=db.rooms.filter(g=>g.id!==rid);
       db.messages=db.messages.filter(m=>m.roomId!==rid);
       db.audios=db.audios.filter(a=>a.roomId!==rid);
@@ -435,7 +568,7 @@ async function api(req,res,url) {
 }
 const server=http.createServer(async(req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Frame-Options','DENY');
-  res.setHeader('Permissions-Policy','camera=(), microphone=(self), geolocation=()');
+  res.setHeader('Permissions-Policy','camera=(self), microphone=(self), geolocation=()');
   res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self' https://*.livekit.cloud wss://*.livekit.cloud; manifest-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
   try{const url=new URL(req.url,`http://${req.headers.host||'localhost'}`);if(url.pathname.startsWith('/api/'))await api(req,res,url); else if(req.method==='GET'||req.method==='HEAD')await staticFile(req,res,url); else error(res,405,'Método não permitido.');}
   catch(err){ if(!res.headersSent) { const status=err.status|| (err instanceof SyntaxError?400:500); console.error(status===500?err.message:'');error(res,status,status===500?'Erro interno no servidor.':err.message); } }

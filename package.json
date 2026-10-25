@@ -8,8 +8,9 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test tests/*.test.js",
-    "postinstall": "npm run build:livekit && npm test",
-    "build:livekit": "esbuild public/livekit-radio.js --bundle --minify --format=esm --platform=browser --target=es2020 --outfile=public/livekit.bundle.js"
+    "postinstall": "npm run build:livekit && npm run build:calls && npm test",
+    "build:livekit": "esbuild public/livekit-radio.js --bundle --minify --format=esm --platform=browser --target=es2020 --outfile=public/livekit.bundle.js",
+    "build:calls": "esbuild public/call-client.js --bundle --minify --format=esm --platform=browser --target=es2020 --outfile=public/call.bundle.js"
   },
   "engines": {
     "node": ">=20.0.0"

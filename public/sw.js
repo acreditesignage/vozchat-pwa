@@ -1,5 +1,5 @@
-const VERSION='vozchat-shell-v14';
-const ASSETS=['/app','/talk','/styles.css','/app.js','/talk.js','/talk.css','/talk.webmanifest','/icons/flowtalk.svg','/talk-worklet.js','/livekit.bundle.js','/icons/icon.svg','/icons/icon-maskable.svg','/icons/icon-192.png','/icons/icon-512.png','/manifest.webmanifest'];
+const VERSION='vozchat-shell-v15';
+const ASSETS=['/app','/talk','/styles.css','/app.js','/talk.js','/talk.css','/talk.webmanifest','/icons/flowtalk.svg','/talk-worklet.js','/livekit.bundle.js','/call.bundle.js','/icons/icon.svg','/icons/icon-maskable.svg','/icons/icon-192.png','/icons/icon-512.png','/manifest.webmanifest'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(VERSION).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==VERSION).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
 self.addEventListener('fetch',event=>{if(event.request.method!=='GET'||new URL(event.request.url).pathname.startsWith('/api/'))return;event.respondWith(fetch(event.request).catch(()=>caches.match(event.request)));});
@@ -10,7 +10,10 @@ self.addEventListener('push',event=>{
   const body=String(payload.body||'Você recebeu uma nova mensagem.').slice(0,140);
   const safeId=/^[0-9a-f-]{36}$/i.test(payload.roomId||'')?payload.roomId:'';
   const isTalk=payload.kind==='talk';
-  const url=safeId?(isTalk?'/talk?room='+encodeURIComponent(safeId)+'&join=1':'/app?open='+encodeURIComponent(safeId)):'/app';
+  const isCall=payload.kind==='call';
+  const safeCallId=/^[0-9a-f-]{36}$/i.test(payload.callId||'')?payload.callId:'';
+  const url=safeId?(isCall&&safeCallId?'/app?open='+encodeURIComponent(safeId)+'&call='+encodeURIComponent(safeCallId):
+    isTalk?'/talk?room='+encodeURIComponent(safeId)+'&join=1':'/app?open='+encodeURIComponent(safeId)):'/app';
   event.waitUntil((async()=>{
     await self.registration.showNotification(title,{
       body,
@@ -18,8 +21,8 @@ self.addEventListener('push',event=>{
       badge:'/icons/icon-192.png',
       tag:typeof payload.tag==='string'?payload.tag.slice(0,90):'vozchat-message',
       renotify:true,
-      vibrate:isTalk?[180,100,180,100,180]:[100,60,100],
-      requireInteraction:isTalk,
+      vibrate:isCall?[220,100,220,100,220]:isTalk?[180,100,180,100,180]:[100,60,100],
+      requireInteraction:isTalk||isCall,
       timestamp:Date.now(),
       data:{url,roomId:safeId}
     });
