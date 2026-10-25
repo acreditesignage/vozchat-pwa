@@ -28,7 +28,15 @@ const neonPlay=window.createNeonPlay({api,toast,getMe:()=>me,getRoom:()=>current
     soundAlert();vibrateAlert();toast('🎮 Seu contato convidou você para o Labirinto Neon!');
   }
 });
-function showAuth() {window.VozChatRingtone?.stop();neonPlay.reset();me=null;identities=[];rooms=[];current=null;knownIncomingRequestIds=null;$('#auth').hidden=false;$('#app').hidden=true;$('#app').classList.remove('chat-open');if(events){events.close();events=null;}}
+const playHistory=window.createPlayHistory({
+  api,toast,getMe:()=>me,getIdentities:()=>identities,getRooms:()=>rooms,getRoom:()=>current,
+  openChat:async(roomId,play)=>{
+    switchMobileTab('chats');setConversationFilter('all');
+    await openRoom(roomId);
+    if(play&&$('#playChooser').hidden)$('#playButton').click();
+  }
+});
+function showAuth() {window.VozChatRingtone?.stop();playHistory.reset();neonPlay.reset();me=null;identities=[];rooms=[];current=null;knownIncomingRequestIds=null;$('#auth').hidden=false;$('#app').hidden=true;$('#app').classList.remove('chat-open');if(events){events.close();events=null;}}
 function sortRooms() {rooms.sort((a,b)=>new Date(b.last?.createdAt||b.createdAt)-new Date(a.last?.createdAt||a.createdAt));}
 function authMode(register) {isRegister=register;$('#nameField').hidden=!register;$('#realName').required=register;$('#usernameField').hidden=register;$('#username').required=!register;$('#authDescription').textContent=register?'Escolha como quer ser chamado. Seu ID exclusivo será criado automaticamente.':'Entre com seu ID numérico (ou usuário antigo) e sua senha.';$('#authTitle').textContent=register?'Crie sua conta':'Entre na sua conta';$('#authSubmit').innerHTML=register?'Criar conta <span>→</span>':'Entrar <span>→</span>';$('#authSwitchLabel').firstChild.textContent=register?'Já possui uma conta? ':'Ainda não tem conta? ';$('#authSwitch').textContent=register?'Entrar':'Criar conta';$('#password').autocomplete=register?'new-password':'current-password';}
 $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
@@ -51,7 +59,7 @@ async function start() {let data;try {data=await api('/api/bootstrap');}catch{sh
       location.replace(to.pathname+to.search+to.hash);return;
     }catch(e){toast('O perfil do link não pertence a esta conta.');}
   }
-  sortRooms();loadFavoriteRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;renderIdentities();$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);updateWhatsAppInvites();renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();
+  sortRooms();loadFavoriteRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;renderIdentities();playHistory.sync();$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);updateWhatsAppInvites();renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();
   if(requestsParam==='1'){
     history.replaceState({},'', '/app');
     $('#pendingContactsButton').click();
@@ -79,7 +87,7 @@ function paintAvatar(element,name,url){
   element.replaceChildren(img);
   img.src=url;
 }
-function upsertRoom(r) {let idx=rooms.findIndex(x=>x.id===r.id);if(idx<0)rooms.push(r);else rooms[idx]={...rooms[idx],...r};sortRooms();renderRooms();if(current===r.id)renderHeader();}
+function upsertRoom(r) {let idx=rooms.findIndex(x=>x.id===r.id);if(idx<0)rooms.push(r);else rooms[idx]={...rooms[idx],...r};sortRooms();renderRooms();playHistory.sync();if(current===r.id)renderHeader();}
 const PHONE_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h4l1 5-2 2a16 16 0 0 0 5 5l2-2 5 1v4a3 3 0 0 1-3-3C10 21 3 14 3 6a3 3 0 0 1 3-3Z"/></svg>';
 const VIDEO_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="14" height="14" rx="3"/><path d="m16 10 6-4v12l-6-4"/></svg>';
 function loadFavoriteRooms(){
@@ -442,7 +450,9 @@ function connectEvents(){
     if($('#groupManageDialog').open&&managedGroup===next.id)void refreshGroupMembers();
   });
   events.addEventListener('neon-update',event=>{
-    neonPlay.receive(JSON.parse(event.data));
+    const updated=JSON.parse(event.data);
+    neonPlay.receive(updated);
+    if(updated.status!=='active')void playHistory.refresh();
   });
   events.addEventListener('play-update',event=>{
     const game=JSON.parse(event.data);
@@ -450,6 +460,7 @@ function connectEvents(){
     const isInvitation=game.status==='pending'&&game.inviterId!==me.id&&
       (!playGame||playGame.id!==game.id||playGame.status!=='pending');
     playGame=game;playRoomId=game.roomId;
+    if(game.status!=='active')void playHistory.refresh();
     if(isInvitation){neonPlay.close();$('#playChooser').hidden=true;playPanelOpen=true;
       soundAlert();vibrateAlert();toast('🎮 Você recebeu um convite para jogar!');}
     renderPlayPanel();
@@ -510,10 +521,11 @@ function connectEvents(){
   });
   events.onerror=()=>{if(!navigator.onLine)$('#offline').hidden=false;};
 }
-async function openRoom(roomId){if(current!==roomId){neonPlay.reset();$('#playChooser').hidden=true;stopLiveRadio();playGame=null;playRoomId=roomId;playPanelOpen=false;$('#playPanel').hidden=true;}current=roomId;$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();void refreshPlayGame(roomId);}catch(err){toast(err.message);} }
+async function openRoom(roomId){if(current!==roomId){neonPlay.reset();$('#playChooser').hidden=true;stopLiveRadio();playGame=null;playRoomId=roomId;playPanelOpen=false;$('#playPanel').hidden=true;}current=roomId;playHistory.roomOpened(roomId);$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();void refreshPlayGame(roomId);}catch(err){toast(err.message);} }
 function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;paintAvatar($('#headerAvatar'),r.name,r.avatarUrl);$('#removeContactButton').hidden=!r.isDirect;
   const playAllowed=!!r.isDirect&&!identities.some(p=>p.id===me?.id&&p.label==='Profissional');
   $('#playButton').hidden=!playAllowed;
+  playHistory.syncChat(r);
   if(!playAllowed){neonPlay.close();$('#playChooser').hidden=true;playPanelOpen=false;$('#playPanel').hidden=true;}
 }
 // VozChat Play: estado persistido e validado no servidor. Nenhuma jogada é confiada ao navegador.
@@ -680,7 +692,7 @@ function openDialog(id){document.getElementById(id).showModal();}
 
 function resetActiveChat(){
   current=null;messages=[];playGame=null;playRoomId=null;playPanelOpen=false;
-  neonPlay.reset();$('#playChooser').hidden=true;$('#playPanel').hidden=true;
+  playHistory.syncChat(null);playHistory.sync();neonPlay.reset();$('#playChooser').hidden=true;$('#playPanel').hidden=true;
   $('#app').classList.remove('chat-open');
   $('#emptyChat').hidden=false;$('#activeChat').hidden=true;
   $('#messages').replaceChildren();
