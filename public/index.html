@@ -125,7 +125,7 @@
   <dialog id="notificationsDialog" class="dialog notification-dialog">
     <div class="dialog-head"><div class="dialog-icon">🔔</div><button class="dialog-close" type="button" data-close="notificationsDialog" aria-label="Fechar">×</button></div>
     <h2>Notificações do VozChat</h2>
-    <p>Receba avisos de mensagens mesmo com o chat em segundo plano, quando o dispositivo permitir.</p>
+    <p>Receba mensagens, pedidos de contato por ID e chamadas, inclusive com o app em segundo plano quando o dispositivo permitir.</p>
     <p id="notificationStatus" class="notification-status" role="status" aria-live="polite">Verificando compatibilidade...</p>
     <button id="enableNotifications" class="primary" type="button">Ativar notificações push</button>
     <button id="disableNotifications" class="secondary notification-secondary" type="button" hidden>Desativar notificações neste aparelho</button>
@@ -134,7 +134,9 @@
       <label class="notification-choice"><span>📳 <strong>Vibração</strong><small>Vibrar se o dispositivo oferecer suporte</small></span><input type="checkbox" id="notificationVibrate" checked></label>
     </div>
     <button id="testNotifications" class="secondary notification-secondary" type="button">▶ Testar som e vibração</button>
-    <p class="upload-tip">iPhone: abra no Safari e use Compartilhar → Adicionar à Tela de Início. Depois abra o ícone do VozChat e toque em Ativar notificações. O som e a vibração em segundo plano dependem do sistema.</p>
+    <button id="testCallRingtone" class="secondary notification-secondary" type="button">📞 Ouvir campainha de chamada (7 s)</button>
+    <button id="testPushNotification" class="secondary notification-secondary" type="button">🔔 Enviar push real pelo servidor</button>
+    <p class="upload-tip">iPhone: no Safari toque em Compartilhar → Adicionar à Tela de Início. Abra pelo ícone instalado e conceda a permissão em Ativar notificações. Uma chamada pode enviar push com aviso de atender, mas o iOS não permite garantir campainha contínua com o aplicativo fechado.</p>
   </dialog>
   <section id="callOverlay" class="call-overlay" role="dialog" aria-modal="true" aria-labelledby="callTitle" hidden>
     <div class="call-sheet">
