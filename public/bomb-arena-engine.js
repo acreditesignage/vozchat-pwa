@@ -80,8 +80,11 @@ export function tickBombGame(game,now=Date.now()){
  const old=game.bombs.length;
  for(const bomb of [...game.bombs])if(bomb.expiresAt<=now){explode(game,bomb,now);changed=true;}
  if(old!==game.bombs.length)changed=true;
+ const wasAlive=game.fighters.map(p=>p.alive);
  for(const p of game.fighters)if(p.alive&&game.flames.some(f=>f.x===p.x&&f.y===p.y))hit(game,p.x,p.y,now);
+ if(game.fighters.some((p,i)=>p.alive!==wasAlive[i]))changed=true;
  finish(game,now);
+ if(game.status!=='active')changed=true;
  if(changed){game.turn++;game.updatedAt=stamp(now);}
  return changed;
 }
