@@ -34,9 +34,9 @@ const playHistory=window.createPlayHistory({
   openChat:async(roomId,gameKind)=>{
     switchMobileTab('chats');setConversationFilter('all');
     await openRoom(roomId);
-    if(gameKind==='neon-maze')$('#chooseNeonMaze').click();
-    else if(gameKind==='tic-tac-toe')$('#chooseTicTacToe').click();
-    else if(gameKind&&$('#playChooser').hidden)$('#playButton').click();
+    if(gameKind==='neon-maze')await sendQuickPlayInvite('neon');
+    else if(gameKind==='tic-tac-toe')await sendQuickPlayInvite('tic');
+    else if(gameKind)openComposerPlayMenu(true);
   }
 });
 function showAuth() {window.VozChatRingtone?.stop();playHistory.reset();neonPlay.reset();me=null;identities=[];rooms=[];current=null;knownIncomingRequestIds=null;$('#auth').hidden=false;$('#app').hidden=true;$('#app').classList.remove('chat-open');if(events){events.close();events=null;}}
@@ -71,7 +71,9 @@ async function start() {let data;try {data=await api('/api/bootstrap');}catch{sh
     history.replaceState({},'', '/app');
     openContactDialog(addContactParam);
   }
-  if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
+  if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}
+  void checkPendingPlayInvites();
+}
 function paintAvatar(element,name,url){
   element.replaceChildren();
   element.textContent=avatar(name);
@@ -452,6 +454,10 @@ function connectEvents(){
     const next=JSON.parse(event.data);upsertRoom(next);
     if($('#groupManageDialog').open&&managedGroup===next.id)void refreshGroupMembers();
   });
+  events.addEventListener('play-invite',event=>{
+    const invitation=JSON.parse(event.data);
+    showIncomingPlayInvite(invitation);
+  });
   events.addEventListener('neon-update',event=>{
     const updated=JSON.parse(event.data);
     neonPlay.receive(updated);
@@ -524,10 +530,12 @@ function connectEvents(){
   });
   events.onerror=()=>{if(!navigator.onLine)$('#offline').hidden=false;};
 }
-async function openRoom(roomId){if(current!==roomId){neonPlay.reset();$('#playChooser').hidden=true;stopLiveRadio();playGame=null;playRoomId=roomId;playPanelOpen=false;$('#playPanel').hidden=true;}current=roomId;playHistory.roomOpened(roomId);$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();void refreshPlayGame(roomId);}catch(err){toast(err.message);} }
+async function openRoom(roomId){if(current!==roomId){openComposerPlayMenu(false);neonPlay.reset();$('#playChooser').hidden=true;stopLiveRadio();playGame=null;playRoomId=roomId;playPanelOpen=false;$('#playPanel').hidden=true;}current=roomId;playHistory.roomOpened(roomId);$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();void refreshPlayGame(roomId);}catch(err){toast(err.message);} }
 function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;paintAvatar($('#headerAvatar'),r.name,r.avatarUrl);$('#removeContactButton').hidden=!r.isDirect;
   const playAllowed=!!r.isDirect&&!identities.some(p=>p.id===me?.id&&p.label==='Profissional');
   $('#playButton').hidden=!playAllowed;
+  $('#composerPlayButton').hidden=!playAllowed;
+  if(!playAllowed)openComposerPlayMenu(false);
   playHistory.syncChat(r);
   if(!playAllowed){neonPlay.close();$('#playChooser').hidden=true;playPanelOpen=false;$('#playPanel').hidden=true;}
 }
@@ -623,6 +631,44 @@ async function performPlayAction(action,position,button){
   }catch(err){toast(err.message);}
   finally{playBusy=false;renderPlayPanel();}
 }
+let quickPlayBusy=false;
+function openComposerPlayMenu(force){
+  const menu=$('#composerPlayMenu');
+  const open=typeof force==='boolean'?force:menu.hidden;
+  const room=rooms.find(r=>r.id===current);
+  menu.hidden=!(open&&room?.isDirect&&me&&!identities.some(i=>i.id===me.id&&i.label==='Profissional'));
+  $('#composerPlayButton').setAttribute('aria-expanded',String(!menu.hidden));
+}
+async function sendQuickPlayInvite(kind){
+  if(quickPlayBusy||!current||!['neon','tic'].includes(kind))return;
+  const room=rooms.find(r=>r.id===current);
+  if(!room?.isDirect)return toast('Escolha um contato aprovado para jogar.');
+  const roomId=current;quickPlayBusy=true;
+  for(const button of $('#composerPlayMenu').querySelectorAll('button'))button.disabled=true;
+  try{
+    const endpoint=kind==='neon'?'/api/play/neon/invite':'/api/play/invite';
+    await api(endpoint,{method:'POST',data:{roomId}});
+    openComposerPlayMenu(false);
+    if(current!==roomId)return;
+    $('#playChooser').hidden=true;
+    if(kind==='neon'){playPanelOpen=false;renderPlayPanel();await neonPlay.open(roomId);}
+    else {neonPlay.close();playPanelOpen=true;await refreshPlayGame(roomId,true);}
+    toast('🎮 Convite enviado! O contato receberá uma chamada para jogar.');
+  }catch(err){
+    if(/convite pendente|partida em andamento|em andamento ou convite/i.test(err.message)){
+      openComposerPlayMenu(false);
+      if(kind==='neon')await neonPlay.open(roomId);
+      else {playPanelOpen=true;await refreshPlayGame(roomId,true);}
+      toast('Há uma partida ou convite pendente. Abra o jogo para continuar.');
+    }else toast(err.message);
+  }finally{
+    quickPlayBusy=false;
+    for(const button of $('#composerPlayMenu').querySelectorAll('button'))button.disabled=false;
+  }
+}
+$('#composerPlayButton').addEventListener('click',()=>openComposerPlayMenu());
+$('#composerInviteNeon').addEventListener('click',()=>void sendQuickPlayInvite('neon'));
+$('#composerInviteTic').addEventListener('click',()=>void sendQuickPlayInvite('tic'));
 $('#playButton').addEventListener('click',()=>{
   if(!$('#playChooser').hidden){
     $('#playChooser').hidden=true;return;
@@ -694,6 +740,7 @@ function scrollDown() {const list=$('#messages');requestAnimationFrame(()=>{list
 function openDialog(id){document.getElementById(id).showModal();}
 
 function resetActiveChat(){
+  openComposerPlayMenu(false);
   current=null;messages=[];playGame=null;playRoomId=null;playPanelOpen=false;
   playHistory.syncChat(null);playHistory.sync();neonPlay.reset();$('#playChooser').hidden=true;$('#playPanel').hidden=true;
   $('#app').classList.remove('chat-open');
