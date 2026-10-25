@@ -219,11 +219,11 @@ async function notifyMembers(room, sender, msg) {
   const recipients = new Set(room.members.filter(uid=>uid!==sender.id));
   if(!recipients.size)return;
   const payload=JSON.stringify({
-    title: room.directKey ? sender.name : room.name,
+    title:['game','maze'].includes(msg.type)?'🎮 '+sender.name+' chamou você para jogar':room.directKey?sender.name:room.name,
     kind:['game','maze'].includes(msg.type)?'game-invite':'message',
     gameType:msg.type==='maze'?'neon':msg.type==='game'?'tic':null,
     gameId:msg.mazeId||msg.gameId||null,
-    body: msg.type==='flowtalk'?'📻 Chamado no FlowTalk':msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':msg.type==='game'?'🎮 Convite para Jogo da Velha':msg.type==='maze'?'🎮 Convite para Labirinto Neon':'Nova mensagem',
+    body: msg.type==='flowtalk'?'📻 Chamado no FlowTalk':msg.type==='audio'?'Nova mensagem de voz':msg.type==='image'?'Enviou uma foto':msg.type==='video'?'Enviou um vídeo':msg.type==='file'?'Enviou um arquivo':msg.type==='game'?'Convite para Jogo da Velha. Toque para aceitar.':msg.type==='maze'?'Convite para Labirinto Neon. Toque para aceitar.':'Nova mensagem',
     roomId:room.id,
     url:'/app?open='+encodeURIComponent(room.id),
     tag:['game','maze'].includes(msg.type)?'vozchat-game-'+(msg.mazeId||msg.gameId):'vozchat-'+room.id,
