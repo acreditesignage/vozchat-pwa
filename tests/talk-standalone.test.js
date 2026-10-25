@@ -50,6 +50,6 @@ test('FlowTalk independente tem entrada própria, controles LiveKit e ícone ins
   assert.match(js,/Notification\.requestPermission\(\)/);
   assert.match(js,/registration\.pushManager\.subscribe/);
   assert.match(worker,/\/talk\?room=/);
-  assert.match(worker,/const VERSION='vozchat-shell-v25'/);
+  assert.match(worker,/const VERSION='vozchat-shell-v26'/);
   assert.match(worker,/\/talk\.webmanifest/);
 });

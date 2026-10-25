@@ -4,6 +4,9 @@ const joinParam = new URLSearchParams(location.search).get('join');
 const openParam = new URLSearchParams(location.search).get('open');
 const talkParam = new URLSearchParams(location.search).get('talk');
 const callParam = new URLSearchParams(location.search).get('call');
+const addContactParam = new URLSearchParams(location.search).get('add');
+const validAddContactParam=/^[1-9][0-9]{1,79}$/.test(addContactParam||'');
+let deferContactInviteUntilWelcome=false;
 const requestsParam = new URLSearchParams(location.search).get('requests');
 let currentCall=null,callEngine=null,joiningCall=false,callAttempt=0;
 let pendingContactRequests=[];
@@ -20,11 +23,22 @@ function showAuth() {window.VozChatRingtone?.stop();me=null;rooms=[];current=nul
 function sortRooms() {rooms.sort((a,b)=>new Date(b.last?.createdAt||b.createdAt)-new Date(a.last?.createdAt||a.createdAt));}
 function authMode(register) {isRegister=register;$('#nameField').hidden=!register;$('#realName').required=register;$('#usernameField').hidden=register;$('#username').required=!register;$('#authDescription').textContent=register?'Escolha como quer ser chamado. Seu ID exclusivo será criado automaticamente.':'Entre com seu ID numérico (ou usuário antigo) e sua senha.';$('#authTitle').textContent=register?'Crie sua conta':'Entre na sua conta';$('#authSubmit').innerHTML=register?'Criar conta <span>→</span>':'Entrar <span>→</span>';$('#authSwitchLabel').firstChild.textContent=register?'Já possui uma conta? ':'Ainda não tem conta? ';$('#authSwitch').textContent=register?'Entrar':'Criar conta';$('#password').autocomplete=register?'new-password':'current-password';}
 $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
-$('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#authSubmit');btn.disabled=true;try {const creating=isRegister;const result=await api(creating?'/api/register':'/api/login',{method:'POST',data:creating?{name:$('#realName').value,password:$('#password').value}:{username:$('#username').value,password:$('#password').value}});$('#password').value='';await start();if(creating&&result.user?.publicId){$('#welcomePublicId').textContent=result.user.publicId;openDialog('welcomeDialog');}}catch(err){toast(err.message);}finally{btn.disabled=false;}});
-async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();loadFavoriteRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();
+$('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#authSubmit');btn.disabled=true;try {const creating=isRegister;deferContactInviteUntilWelcome=creating&&validAddContactParam;const result=await api(creating?'/api/register':'/api/login',{method:'POST',data:creating?{name:$('#realName').value,password:$('#password').value}:{username:$('#username').value,password:$('#password').value}});$('#password').value='';await start();if(creating&&result.user?.publicId){$('#welcomePublicId').textContent=result.user.publicId;openDialog('welcomeDialog');
+    if(deferContactInviteUntilWelcome){
+      $('#welcomeDialog').addEventListener('close',()=>{
+        history.replaceState({},'', '/app');
+        openContactDialog(addContactParam);
+      },{once:true});
+    }
+  }}catch(err){toast(err.message);}finally{deferContactInviteUntilWelcome=false;btn.disabled=false;}});
+async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();loadFavoriteRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);updateWhatsAppInvites();renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();
   if(requestsParam==='1'){
     history.replaceState({},'', '/app');
     $('#pendingContactsButton').click();
+  }
+  if(validAddContactParam&&!deferContactInviteUntilWelcome){
+    history.replaceState({},'', '/app');
+    openContactDialog(addContactParam);
   }
   if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
 function paintAvatar(element,name,url){
@@ -923,7 +937,11 @@ window.addEventListener('pagehide',()=>{
 
 function newConversation(){$('#newRoomName').value='';openDialog('roomDialog');setTimeout(()=>$('#newRoomName').focus(),100);}
 $('#newRoom').addEventListener('click',newConversation);$('#emptyCreate').addEventListener('click',newConversation);
-function openContactDialog(){$('#contactId').value='';openDialog('contactDialog');setTimeout(()=>$('#contactId').focus(),80);}
+function openContactDialog(contactId=''){
+  $('#contactId').value=/^[1-9][0-9]{1,79}$/.test(String(contactId))?String(contactId):'';
+  openDialog('contactDialog');
+  setTimeout(()=>$('#contactId').focus(),80);
+}
 $('#newDirect').addEventListener('click',openContactDialog);
 $('#emptyContact').addEventListener('click',openContactDialog);
 $('#contactForm').addEventListener('submit',async e=>{
@@ -947,6 +965,26 @@ async function copyId(){
 }
 $('#copyMyId').addEventListener('click',copyId);
 $('#copyWelcomeId').addEventListener('click',()=>{copyId();$('#welcomeDialog').close();});
+function myInviteLink(){
+  if(!me?.publicId||!/^[1-9][0-9]{1,79}$/.test(String(me.publicId)))return '';
+  const link=new URL('/app',location.origin);
+  link.searchParams.set('add',String(me.publicId));
+  return link.href;
+}
+function updateWhatsAppInvites(){
+  const link=myInviteLink();
+  const message=link?'Vamos conversar no VozChat! Você pode me adicionar por ID, sem precisar informar seu telefone no app. Abra o convite e confirme a solicitação:\n'+link:'';
+  for(const anchor of document.querySelectorAll('[data-whatsapp-invite]')){
+    anchor.href=link?'https://wa.me/?text='+encodeURIComponent(message):'#';
+    anchor.setAttribute('aria-disabled',link?'false':'true');
+  }
+}
+$('#copyPersonalInvite').addEventListener('click',async()=>{
+  const link=myInviteLink();
+  if(!link)return toast('Convite indisponível neste momento.');
+  try{await navigator.clipboard.writeText(link);toast('Seu link de convite foi copiado!');}
+  catch{toast('Não foi possível copiar automaticamente. Use Convidar pelo WhatsApp.');}
+});
 for(const b of document.querySelectorAll('[data-close]'))b.addEventListener('click',()=>document.getElementById(b.dataset.close).close());
 $('#roomForm').addEventListener('submit',async e=>{e.preventDefault();try{const data=await api('/api/rooms',{method:'POST',data:{name:$('#newRoomName').value}});$('#roomDialog').close();upsertRoom(data.room);await openRoom(data.room.id);showInvite();}catch(err){toast(err.message);}});
 function showInvite(){const r=rooms.find(x=>x.id===current);if(!r||r.isDirect)return;$('#inviteLink').value=location.origin+r.inviteUrl;openDialog('inviteDialog');}
@@ -1547,6 +1585,20 @@ $('#settingsNotifications').addEventListener('click',()=>{
   $('#notificationsButton').click();
 });
 $('#settingsCopyId').addEventListener('click',()=>$('#copyMyId').click());
+const hidePreviewKey='vozchat_hide_preview_v1';
+function syncPrivacyShield(){
+  const enabled=localStorage.getItem(hidePreviewKey)!=='no';
+  const shield=$('#privacyShield');
+  shield.hidden=!(enabled&&document.visibilityState==='hidden'&&!$('#app').hidden);
+}
+$('#settingsHidePreview').checked=localStorage.getItem(hidePreviewKey)!=='no';
+$('#settingsHidePreview').addEventListener('change',event=>{
+  localStorage.setItem(hidePreviewKey,event.target.checked?'yes':'no');
+  syncPrivacyShield();
+});
+document.addEventListener('visibilitychange',syncPrivacyShield);
+window.addEventListener('pagehide',()=>{if(localStorage.getItem(hidePreviewKey)!=='no'&&!$('#app').hidden)$('#privacyShield').hidden=false;});
+window.addEventListener('pageshow',()=>{$('#privacyShield').hidden=true;});
 $('#settingsCompact').addEventListener('change',event=>{
   localStorage.setItem(compactSettingKey,event.target.checked?'yes':'no');
   applyCompact();
