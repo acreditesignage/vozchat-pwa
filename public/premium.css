@@ -192,6 +192,26 @@ html[data-theme="dark"] .flowtalk-hold{color:#fff}
 @media(min-width:631px){.sidebar .sidebar-foot{margin-top:auto}.room-list{flex:1}}
 
 
+/* Convites intencionais pelo WhatsApp: o usuário decide quem recebe o seu ID. */
+.whatsapp-invite-link{display:flex;align-items:center;justify-content:center;gap:7px;
+  min-height:43px;margin:9px 0;padding:10px 13px;border-radius:13px;
+  border:1px solid #a9ddbc;background:#eefcf3;color:#146d40;
+  text-decoration:none;font-size:13px;font-weight:750;line-height:1.25;text-align:center}
+.whatsapp-invite-link:hover,.whatsapp-invite-link:focus-visible{background:#dff7e9;border-color:#5fb889}
+.whatsapp-invite-link[aria-disabled="true"]{opacity:.45;pointer-events:none}
+.whatsapp-invite-sidebar{margin:0 19px 11px;flex:none}
+html[data-theme="dark"] .whatsapp-invite-link{background:#10352a;border-color:#205841;color:#86e8ad}
+html[data-theme="dark"] .whatsapp-invite-link:hover{background:#18513b}
+@media(max-width:630px){.whatsapp-invite-sidebar{margin:0 16px 8px;min-height:41px}}
+/* Proteção de miniatura em segundo plano (não bloqueia capturas de tela). */
+.privacy-shield[hidden]{display:none!important}
+.privacy-shield{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:12px;background:#061321;color:#eff7ff;
+  text-align:center;padding:25px;pointer-events:auto}
+.privacy-shield-mark{font-size:46px;font-weight:900;color:#4faaff;letter-spacing:-5px}
+.privacy-shield strong{font-size:25px;font-weight:850;letter-spacing:-.8px}
+.privacy-shield span{font-size:13px;color:#a9bed4}
+
 /* Histórico real de chamadas, carregado apenas para contatos autorizados. */
 .call-history{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}
 .call-history-filters{display:flex;gap:7px;padding:8px 18px 13px;overflow-x:auto;flex:none}
