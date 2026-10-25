@@ -1,4 +1,4 @@
-const VERSION='vozchat-shell-v26';
+const VERSION='vozchat-shell-v27';
 const ASSETS=['/app','/theme.js','/premium.css','/call-ringtone.js','/talk','/install-guide.css','/install-guide.js','/styles.css','/app.js','/talk.js','/talk.css','/talk.webmanifest','/icons/flowtalk.svg','/talk-worklet.js','/livekit.bundle.js','/call.bundle.js','/icons/icon.svg','/icons/icon-maskable.svg','/icons/icon-192.png','/icons/icon-512.png','/manifest.webmanifest'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(VERSION).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==VERSION).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
@@ -16,6 +16,10 @@ self.addEventListener('push',event=>{
   const url=isContactRequest?'/app?requests=1':
     safeId?(isCall&&safeCallId?'/app?open='+encodeURIComponent(safeId)+'&call='+encodeURIComponent(safeCallId):
     isTalk?'/talk?room='+encodeURIComponent(safeId)+'&join=1':'/app?open='+encodeURIComponent(safeId)):'/app';
+  const safeProfile=/^[0-9a-f-]{36}$/i.test(payload.profileId||'')?payload.profileId:'';
+  // Ao tocar a notificação, muda apenas para um perfil pertencente à própria conta.
+  const notificationUrl=new URL(url,self.location.origin);
+  if(safeProfile&&notificationUrl.pathname==='/app')notificationUrl.searchParams.set('identity',safeProfile);
   event.waitUntil((async()=>{
     await self.registration.showNotification(title,{
       body,
@@ -26,7 +30,7 @@ self.addEventListener('push',event=>{
       vibrate:isCall?[220,100,220,100,220]:isTalk?[180,100,180,100,180]:isContactRequest?[180,90,180]:[100,60,100],
       requireInteraction:isTalk||isCall||isContactRequest,
       timestamp:Date.now(),
-      data:{url,roomId:safeId}
+      data:{url:notificationUrl.pathname+notificationUrl.search,roomId:safeId}
     });
     if('setAppBadge' in self.navigator)try{await self.navigator.setAppBadge();}catch{}
   })());
