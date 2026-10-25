@@ -190,3 +190,22 @@ html[data-theme="dark"] .flowtalk-hold{color:#fff}
   .call-remote-videos{max-height:60dvh}
 }
 @media(min-width:631px){.sidebar .sidebar-foot{margin-top:auto}.room-list{flex:1}}
+
+
+/* Histórico real de chamadas, carregado apenas para contatos autorizados. */
+.call-history{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}
+.call-history-filters{display:flex;gap:7px;padding:8px 18px 13px;overflow-x:auto;flex:none}
+.call-history-filters button{border:1px solid var(--ui-edge);background:var(--ui-soft);color:var(--ui-muted);border-radius:99px;padding:8px 12px;min-height:35px;flex:none;font-size:11px;font-weight:750}
+.call-history-filters button[aria-pressed="true"]{background:linear-gradient(135deg,#319fff,#0873ed);border-color:transparent;color:#fff}
+.call-history-list{overflow-y:auto;min-height:0;flex:1;padding:0 10px}
+.history-call-row{display:flex;align-items:center;gap:10px;padding:12px 8px;min-height:74px;border-bottom:1px solid var(--ui-edge)}
+.history-avatar{width:43px;height:43px;flex:none;border-radius:50%;display:grid;place-items:center;overflow:hidden;background:var(--ui-soft);color:var(--ui-accent);font-weight:800}
+.history-call-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.history-call-info strong{font-size:13px;color:var(--ui-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.history-call-info span{font-size:11px;color:var(--ui-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.history-call-info .history-missed{color:#df485a}
+.history-call-time{font-size:10px;color:var(--ui-muted);white-space:nowrap}
+.history-call-button{height:37px;width:37px;flex:none;border:0;border-radius:50%;background:var(--ui-soft);color:var(--ui-accent);display:grid;place-items:center;padding:8px}
+.history-call-button svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.call-history-new{background:var(--ui-soft);color:var(--ui-accent);border:1px solid var(--ui-edge);border-radius:13px;padding:12px;margin:9px 16px 13px;min-height:44px;flex:none;font-size:12px;font-weight:800}
+@media(max-width:630px){.call-history-filters{padding-inline:16px}.history-call-row{gap:8px}.history-call-time{max-width:73px;white-space:normal;text-align:right}.call-history-list{padding-inline:10px}}

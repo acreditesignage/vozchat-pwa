@@ -89,12 +89,26 @@ test('chamadas privadas: criar, atender, autenticar câmera/microfone, recusar e
   const after=await req('GET','/api/calls/pending',undefined,a.cookie);
   assert.equal(after.data.calls.length,0);
   assert.equal((await req('POST',uri+'/token',{},a.cookie)).status,404);
+  const firstHistory=await req('GET','/api/calls/history',undefined,a.cookie);
+  assert.equal(firstHistory.status,200);
+  assert.equal(firstHistory.data.calls.length,1);
+  assert.equal(firstHistory.data.calls[0].status,'completed');
+  assert.equal(firstHistory.data.calls[0].direction,'outgoing');
+  assert.equal(firstHistory.data.calls[0].kind,'video');
+  const recipientHistory=await req('GET','/api/calls/history',undefined,b.cookie);
+  assert.equal(recipientHistory.data.calls[0].direction,'incoming');
+  const unauthorizedHistory=await req('GET','/api/calls/history',undefined,outsider.cookie);
+  assert.equal(unauthorizedHistory.data.calls.length,0);
   const audio=await req('POST','/api/calls/start',{roomId,kind:'audio'},a.cookie);
   assert.equal(audio.status,201);
   assert.equal(audio.data.call.kind,'audio');
   const rejected=await req('POST','/api/calls/'+audio.data.call.id+'/decline',{},b.cookie);
   assert.equal(rejected.status,200);
   assert.equal((await req('GET','/api/calls/pending',undefined,a.cookie)).data.calls.length,0);
+  const history=await req('GET','/api/calls/history',undefined,a.cookie);
+  assert.equal(history.data.calls.length,2);
+  assert.equal(history.data.calls[0].status,'declined');
+  assert.equal(history.data.calls[0].kind,'audio');
 });
 
 test('interface possui controles separados de áudio/vídeo, alerta e privacidade',()=>{
@@ -108,6 +122,11 @@ test('interface possui controles separados de áudio/vídeo, alerta e privacidad
   assert.match(app,/startCall\('video'\)/);
   assert.match(app,/call-incoming/);
   assert.match(app,/call-ended/);
+  assert.match(app,/function renderCallHistory/);
+  assert.match(app,//api/calls/history/);
+  assert.match(html,/id="callHistoryList"/);
+  assert.match(html,/data-call-filter="missed"/);
+  assert.match(server,//api/calls/history/);
   assert.match(app,/VozChatRingtone\?\.start/);
   assert.match(app,/VozChatRingtone\?\.stop/);
   assert.match(html,/src="\/call-ringtone.js"/);

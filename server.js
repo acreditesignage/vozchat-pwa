@@ -88,7 +88,7 @@ const pushEnabled = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 const webPush = pushEnabled ? (await import('web-push')).default : null;
 if(webPush) webPush.setVapidDetails(process.env.VAPID_SUBJECT || 'https://vozchat-pwa.onrender.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 const pool = POSTGRES_URL ? new (await import('pg')).default.Pool({connectionString:POSTGRES_URL,max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000}) : null;
-let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], largeUploads: [], contactRequests: [], nextPublicId: '10', pushSubscriptions: [] };
+let db = { users: [], sessions: [], rooms: [], messages: [], audios: [], files: [], largeUploads: [], contactRequests: [], callHistory: [], nextPublicId: '10', pushSubscriptions: [] };
 if(!pool) {
   try {db={...db,...JSON.parse(fs.readFileSync(DATA_FILE,'utf8'))};}
   catch(err){if(err.code!=='ENOENT')throw err;}
@@ -338,6 +338,13 @@ function publishCall(call,type,users=call.invitees){
 function finishCall(call,reason='ended'){
   if(!activeCalls.has(call.id))return;
   activeCalls.delete(call.id);
+  const history=(db.callHistory||[]).find(entry=>entry.id===call.id);
+  if(history){
+    history.endedAt=new Date().toISOString();
+    history.status=history.answeredAt?'completed':reason==='ended'?'canceled':reason==='timeout'?'missed':reason;
+    history.durationSec=history.answeredAt?Math.max(0,Math.floor((Date.now()-new Date(history.answeredAt).getTime())/1000)):0;
+    void save().catch(err=>console.error('Falha ao salvar histórico de chamadas:',err.message));
+  }
   if(call.timer)clearTimeout(call.timer);
   publishCall(call,'call-ended');
   if(livekitRoomService)void livekitRoomService.deleteRoom('vozchat-call-'+call.id)
@@ -571,6 +578,19 @@ async function deactivateDirectRoom(room){
   if(method==='POST'&&p==='/api/rooms') { const input=JSON.parse((await body(req)).toString('utf8')); const name=String(input.name||'').trim(); if(name.length<2||name.length>60) return error(res,400,'Nome da conversa deve ter de 2 a 60 caracteres.'); const r={id:id(),secret:rand(24),owner:u.id,name,members:[u.id],createdAt:new Date().toISOString()}; db.rooms.push(r); await save(); const view=roomView(r,u.id); push([u.id],'room',view); return json(res,201,{room:view}); }
   if(method==='POST'&&p==='/api/rooms/join') { const input=JSON.parse((await body(req)).toString('utf8')); const [rid,secret]=String(input.invite||'').split('.'); const r=db.rooms.find(r=>r.id===rid&&!r.directKey&&r.secret===secret); if(!r) return error(res,404,'Convite inválido ou expirado.'); if(!r.members.includes(u.id)){r.members.push(u.id);await save();for(const uid of r.members)push([uid],'room',roomView(r,uid));} return json(res,200,{room:roomView(r,u.id)}); }
 
+  if(method==='GET'&&p==='/api/calls/history'){
+    const history=(db.callHistory||[]).filter(entry=>
+      entry.invitees.includes(u.id)&&!!member(u.id,entry.roomId))
+      .slice(-80).reverse().map(entry=>{
+        const room=member(u.id,entry.roomId);
+        const view=roomView(room,u.id);
+        return {id:entry.id,roomId:entry.roomId,name:view.name,avatarUrl:view.avatarUrl,
+          kind:entry.kind,direction:entry.callerId===u.id?'outgoing':'incoming',
+          status:entry.status,createdAt:entry.createdAt,endedAt:entry.endedAt||null,
+          durationSec:entry.durationSec||0};
+      });
+    return json(res,200,{calls:history});
+  }
   if(method==='GET'&&p==='/api/calls/pending'){
     const calls=[...activeCalls.values()].filter(c=>visibleCall(c,u.id))
       .map(c=>callView(c));
@@ -596,6 +616,12 @@ async function deactivateDirectRoom(room){
       state:'ringing',createdAt:new Date(now).toISOString(),expiresAt:now+CALL_RING_MS,
       timer:null};
     activeCalls.set(call.id,call);
+    db.callHistory ||= [];
+    db.callHistory.push({id:call.id,roomId:rid,kind:call.kind,callerId:u.id,
+      invitees:[...r.members],createdAt:call.createdAt,status:'ringing',
+      answeredAt:null,endedAt:null,durationSec:0});
+    if(db.callHistory.length>2000)db.callHistory.splice(0,db.callHistory.length-2000);
+    await save();
     call.timer=setTimeout(()=>{if(call.state==='ringing')finishCall(call,'missed');},CALL_RING_MS);
     publishCall(call,'call-incoming',r.members.filter(uid=>uid!==u.id));
     void alertIncomingCall(call).catch(()=>{});
@@ -609,6 +635,8 @@ async function deactivateDirectRoom(room){
     if(action==='accept'){
       call.accepted.add(u.id);
       call.state='active';
+      const history=(db.callHistory||[]).find(entry=>entry.id===call.id);
+      if(history&&!history.answeredAt){history.answeredAt=new Date().toISOString();history.status='active';await save();}
       call.expiresAt=Date.now()+CALL_MAX_MS;
       if(call.timer){clearTimeout(call.timer);call.timer=null;}
       call.timer=setTimeout(()=>finishCall(call,'timeout'),CALL_MAX_MS);
@@ -620,7 +648,7 @@ async function deactivateDirectRoom(room){
       call.declined.add(u.id);call.accepted.delete(u.id);
       push([u.id],'call-ended',callView(call));
       publishCall(call,'call-update',call.invitees.filter(uid=>uid!==u.id));
-      if(!call.invitees.some(uid=>uid!==call.callerId&&!call.declined.has(uid)))finishCall(call);
+      if(!call.invitees.some(uid=>uid!==call.callerId&&!call.declined.has(uid)))finishCall(call,'declined');
       return json(res,200,{ok:true});
     }
     if(action==='end'){

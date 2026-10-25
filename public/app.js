@@ -6,6 +6,7 @@ const talkParam = new URLSearchParams(location.search).get('talk');
 const callParam = new URLSearchParams(location.search).get('call');
 let currentCall=null,callEngine=null,joiningCall=false,callAttempt=0;
 let pendingContactRequests=[];
+let callHistory=[],callHistoryFilter='all';
 let uiListMode='chats',uiListFilter='all',favorites=new Set();
 const avatar = name => (name||'?').slice(0,1).toUpperCase();
 const time = iso => new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
@@ -60,6 +61,9 @@ function switchMobileTab(mode){
     if(button.dataset.mobileTab===mode)button.setAttribute('aria-current','page');
     else button.removeAttribute('aria-current');
   }
+  $('#callHistory').hidden=mode!=='calls';
+  $('#roomList').hidden=mode==='calls';
+  if(mode==='calls')void refreshCallHistory();
   renderRooms();
 }
 function setConversationFilter(filter){
@@ -70,6 +74,80 @@ function setConversationFilter(filter){
   }
   renderRooms();
 }
+
+async function refreshCallHistory(){
+  if(!me||uiListMode!=='calls')return;
+  const list=$('#callHistoryList');
+  try{
+    const response=await api('/api/calls/history');
+    callHistory=Array.isArray(response.calls)?response.calls:[];
+    renderCallHistory();
+  }catch(err){
+    list.replaceChildren();
+    const failed=document.createElement('p');
+    failed.className='list-empty';
+    failed.textContent='Não foi possível carregar as chamadas. Tente novamente.';
+    list.append(failed);
+  }
+}
+function renderCallHistory(){
+  const list=$('#callHistoryList');
+  if(!list)return;
+  list.replaceChildren();
+  const search=$('#search').value.trim().toLocaleLowerCase('pt-BR');
+  const items=callHistory.filter(c=>{
+    if(callHistoryFilter==='missed'&&!['missed','declined'].includes(c.status))return false;
+    if(callHistoryFilter==='audio'&&c.kind!=='audio')return false;
+    if(callHistoryFilter==='video'&&c.kind!=='video')return false;
+    return (c.name||'').toLocaleLowerCase('pt-BR').includes(search);
+  });
+  if(!items.length){
+    const empty=document.createElement('p');
+    empty.className='list-empty';
+    empty.textContent=search?'Nenhuma chamada corresponde à busca.':
+      callHistoryFilter==='all'?'Nenhuma chamada registrada ainda. Inicie uma ligação com um contato.':
+      'Nenhuma chamada nesta categoria.';
+    list.append(empty);
+    return;
+  }
+  for(const entry of items){
+    const line=document.createElement('div');line.className='history-call-row';
+    const portrait=document.createElement('div');portrait.className='history-avatar';
+    paintAvatar(portrait,entry.name,entry.avatarUrl);
+    const info=document.createElement('div');info.className='history-call-info';
+    const name=document.createElement('strong');name.textContent=entry.name;
+    const detail=document.createElement('span');
+    const missed=['missed','declined'].includes(entry.status);
+    const status=missed?'Não atendida':entry.status==='canceled'?'Cancelada':
+      entry.status==='active'?'Em andamento':entry.status==='ringing'?'Chamando':
+      entry.direction==='outgoing'?'Realizada':'Recebida';
+    const kind=entry.kind==='video'?'vídeo':'voz';
+    detail.textContent=(entry.direction==='outgoing'?'↗ ':'↙ ')+status+' · '+kind;
+    if(missed)detail.classList.add('history-missed');
+    info.append(name,detail);
+    const when=document.createElement('small');
+    when.className='history-call-time';
+    when.textContent=day(entry.createdAt)+' · '+time(entry.createdAt);
+    const callButton=document.createElement('button');
+    callButton.type='button';callButton.className='history-call-button';
+    callButton.innerHTML=entry.kind==='video'?VIDEO_ICON:PHONE_ICON;
+    callButton.setAttribute('aria-label','Ligar novamente para '+entry.name);
+    callButton.addEventListener('click',()=>callContactDirectly(entry.roomId,entry.kind));
+    line.append(portrait,info,when,callButton);
+    list.append(line);
+  }
+}
+for(const button of document.querySelectorAll('[data-call-filter]')){
+  button.addEventListener('click',()=>{
+    callHistoryFilter=button.dataset.callFilter;
+    for(const item of document.querySelectorAll('[data-call-filter]')){
+      item.setAttribute('aria-pressed',String(item.dataset.callFilter===callHistoryFilter));
+    }
+    renderCallHistory();
+  });
+}
+$('#callHistoryContacts').addEventListener('click',()=>switchMobileTab('contacts'));
+
 function callContactDirectly(roomId,kind){
   if(currentCall){toast('Encerre a chamada atual antes de ligar novamente.');return;}
   void (async()=>{
@@ -145,7 +223,7 @@ for(const button of document.querySelectorAll('[data-mobile-tab]')){
 for(const button of document.querySelectorAll('[data-list-filter]')){
   button.addEventListener('click',()=>setConversationFilter(button.dataset.listFilter));
 }
-$('#search').addEventListener('input',renderRooms);
+$('#search').addEventListener('input',()=>{renderRooms();if(uiListMode==='calls')renderCallHistory();});
 // Preferências locais: alertas durante a conversa e notificações do sistema.
 const SETTINGS_KEY='vozchat_notification_settings_v1';
 let notifyPrefs={sound:true,vibrate:true};
@@ -322,6 +400,7 @@ function connectEvents(){
     const stopped=JSON.parse(event.data);
     if(currentCall?.id===stopped.id){
       void closeCallUI(false);
+      if(uiListMode==='calls')void refreshCallHistory();
       toast('Chamada encerrada.');
     }
   });

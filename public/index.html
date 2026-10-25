@@ -23,6 +23,16 @@
         <button type="button" class="list-filter" data-list-filter="groups" aria-pressed="false">Grupos</button>
         <button type="button" class="list-filter" data-list-filter="audio" aria-pressed="false">Áudios</button>
       </div>
+      <section id="callHistory" class="call-history" hidden aria-label="Histórico de chamadas">
+        <div class="call-history-filters" role="group" aria-label="Filtrar histórico">
+          <button type="button" data-call-filter="all" aria-pressed="true">Todas</button>
+          <button type="button" data-call-filter="missed" aria-pressed="false">Perdidas</button>
+          <button type="button" data-call-filter="audio" aria-pressed="false">Voz</button>
+          <button type="button" data-call-filter="video" aria-pressed="false">Vídeo</button>
+        </div>
+        <div id="callHistoryList" class="call-history-list" aria-live="polite"></div>
+        <button id="callHistoryContacts" class="call-history-new" type="button">+ Ligar para um contato</button>
+      </section>
       <div id="roomList" class="room-list"></div>
       <footer class="sidebar-foot"><button class="user-avatar profile-avatar-button" id="meAvatar" type="button" aria-label="Editar foto do meu perfil" title="Toque para alterar sua foto">V</button><div class="me-info"><strong id="meName">Você</strong><button id="copyMyId" class="copy-id-button" type="button" title="Copiar meu ID" aria-label="Copiar meu ID"><span id="meUsername">ID --</span> <span aria-hidden="true">⧉</span></button></div><button id="logout" class="icon-button" aria-label="Sair da conta" title="Sair da conta">↪</button></footer>
       <nav class="mobile-tabbar" aria-label="Navegação principal">
