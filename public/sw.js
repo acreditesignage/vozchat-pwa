@@ -1,4 +1,4 @@
-const VERSION='vozchat-shell-v24';
+const VERSION='vozchat-shell-v25';
 const ASSETS=['/app','/theme.js','/premium.css','/call-ringtone.js','/talk','/install-guide.css','/install-guide.js','/styles.css','/app.js','/talk.js','/talk.css','/talk.webmanifest','/icons/flowtalk.svg','/talk-worklet.js','/livekit.bundle.js','/call.bundle.js','/icons/icon.svg','/icons/icon-maskable.svg','/icons/icon-192.png','/icons/icon-512.png','/manifest.webmanifest'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(VERSION).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==VERSION).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
@@ -11,8 +11,10 @@ self.addEventListener('push',event=>{
   const safeId=/^[0-9a-f-]{36}$/i.test(payload.roomId||'')?payload.roomId:'';
   const isTalk=payload.kind==='talk';
   const isCall=payload.kind==='call';
+  const isContactRequest=payload.kind==='contact-request';
   const safeCallId=/^[0-9a-f-]{36}$/i.test(payload.callId||'')?payload.callId:'';
-  const url=safeId?(isCall&&safeCallId?'/app?open='+encodeURIComponent(safeId)+'&call='+encodeURIComponent(safeCallId):
+  const url=isContactRequest?'/app?requests=1':
+    safeId?(isCall&&safeCallId?'/app?open='+encodeURIComponent(safeId)+'&call='+encodeURIComponent(safeCallId):
     isTalk?'/talk?room='+encodeURIComponent(safeId)+'&join=1':'/app?open='+encodeURIComponent(safeId)):'/app';
   event.waitUntil((async()=>{
     await self.registration.showNotification(title,{
@@ -21,8 +23,8 @@ self.addEventListener('push',event=>{
       badge:'/icons/icon-192.png',
       tag:typeof payload.tag==='string'?payload.tag.slice(0,90):'vozchat-message',
       renotify:true,
-      vibrate:isCall?[220,100,220,100,220]:isTalk?[180,100,180,100,180]:[100,60,100],
-      requireInteraction:isTalk||isCall,
+      vibrate:isCall?[220,100,220,100,220]:isTalk?[180,100,180,100,180]:isContactRequest?[180,90,180]:[100,60,100],
+      requireInteraction:isTalk||isCall||isContactRequest,
       timestamp:Date.now(),
       data:{url,roomId:safeId}
     });

@@ -58,7 +58,7 @@ test('todas as entradas usam as duas aparências e botões de navegação reais'
   assert.match(app,/function renderRooms/);
   assert.match(sw,/\/premium\.css/);
   assert.match(sw,/\/theme\.js/);
-  assert.match(sw,/vozchat-shell-v24/);
+  assert.match(sw,/vozchat-shell-v25/);
   assert.match(html,/data-theme-toggle/);
   assert.match(talk,/data-theme-toggle/);
   assert.match(read('public/talk.css'),/html\[data-theme="dark"\] \.appearance-toggle/);
