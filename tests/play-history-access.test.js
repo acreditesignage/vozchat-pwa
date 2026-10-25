@@ -110,7 +110,7 @@ test('botão Jogar fixo no mobile, histórico privado e retomar conversa estão 
  assert.match(styles,/\.chat-play-bar/);
  assert.match(script,/\/api\/play\/history/);
  assert.match(script,/vozchat_last_room_/);
- assert.match(sw,/vozchat-shell-v30/);
+ assert.match(sw,/vozchat-shell-v31/);
  assert.match(sw,/\/play-history\.js/);
  assert.doesNotThrow(()=>new Function(js));
  assert.doesNotThrow(()=>new Function(script));
