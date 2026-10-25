@@ -13,6 +13,7 @@ let currentCall=null,callEngine=null,joiningCall=false,callAttempt=0;
 let pendingContactRequests=[];
 let knownIncomingRequestIds=null;
 let callHistory=[],callHistoryFilter='all';
+let playGame=null,playRoomId=null,playPanelOpen=false,playBusy=false;
 let uiListMode='chats',uiListFilter='all',favorites=new Set();
 const avatar = name => (name||'?').slice(0,1).toUpperCase();
 const time = iso => new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
@@ -433,6 +434,15 @@ function connectEvents(){
     const next=JSON.parse(event.data);upsertRoom(next);
     if($('#groupManageDialog').open&&managedGroup===next.id)void refreshGroupMembers();
   });
+  events.addEventListener('play-update',event=>{
+    const game=JSON.parse(event.data);
+    if(game.roomId!==current||!me)return;
+    const isInvitation=game.status==='pending'&&game.inviterId!==me.id&&
+      (!playGame||playGame.id!==game.id||playGame.status!=='pending');
+    playGame=game;playRoomId=game.roomId;
+    if(isInvitation){playPanelOpen=true;soundAlert();vibrateAlert();toast('🎮 Você recebeu um convite para jogar!');}
+    renderPlayPanel();
+  });
   events.addEventListener('talk-incoming',event=>{
     const call=JSON.parse(event.data);
     if(!me||!rooms.some(r=>r.id===call.roomId))return;
@@ -489,8 +499,109 @@ function connectEvents(){
   });
   events.onerror=()=>{if(!navigator.onLine)$('#offline').hidden=false;};
 }
-async function openRoom(roomId){if(current!==roomId){stopLiveRadio();}current=roomId;$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();}catch(err){toast(err.message);} }
-function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;paintAvatar($('#headerAvatar'),r.name,r.avatarUrl);$('#removeContactButton').hidden=!r.isDirect;}
+async function openRoom(roomId){if(current!==roomId){stopLiveRadio();playGame=null;playRoomId=roomId;playPanelOpen=false;$('#playPanel').hidden=true;}current=roomId;$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();void refreshPlayGame(roomId);}catch(err){toast(err.message);} }
+function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;paintAvatar($('#headerAvatar'),r.name,r.avatarUrl);$('#removeContactButton').hidden=!r.isDirect;
+  const playAllowed=!!r.isDirect&&!identities.some(p=>p.id===me?.id&&p.label==='Profissional');
+  $('#playButton').hidden=!playAllowed;
+  if(!playAllowed){playPanelOpen=false;$('#playPanel').hidden=true;}
+}
+// VozChat Play: estado persistido e validado no servidor. Nenhuma jogada é confiada ao navegador.
+function playActionButton(label,action,css=''){
+  const button=document.createElement('button');button.type='button';
+  button.textContent=label;button.className=css;
+  button.disabled=playBusy;
+  button.addEventListener('click',()=>void performPlayAction(action,undefined,button));
+  return button;
+}
+function renderPlayPanel(){
+  const panel=$('#playPanel');
+  panel.hidden=!playPanelOpen||!current;
+  if(panel.hidden)return;
+  const game=playRoomId===current?playGame:null;
+  const status=$('#playStatus'),players=$('#playPlayers'),board=$('#playBoard'),actions=$('#playActions');
+  players.replaceChildren();board.replaceChildren();actions.replaceChildren();
+  let mySymbol=null,myTurn=false;
+  if(game){
+    const meInGame=game.players.find(p=>p.id===me?.id);
+    mySymbol=meInGame?.symbol;
+    myTurn=game.status==='active'&&game.turn===mySymbol;
+    for(const player of game.players){
+      const item=document.createElement('span');item.className='play-player'+
+        (game.status==='active'&&game.turn===player.symbol?' is-turn':'');
+      const mark=document.createElement('b');mark.textContent=player.symbol==='X'?'✕':'○';
+      const name=document.createElement('span');name.textContent=player.id===me.id?'Você':player.name;
+      item.append(mark,name);players.append(item);
+    }
+    if(game.status==='pending'){
+      status.textContent=game.inviterId===me.id?'Convite enviado. Aguardando aceite do contato…':
+        'Seu contato convidou você para jogar! Aceitar partida?';
+      if(game.inviterId===me.id)actions.append(playActionButton('Cancelar convite','cancel','play-danger'));
+      else actions.append(playActionButton('Aceitar e jogar','accept','play-primary'),playActionButton('Recusar','decline','play-danger'));
+    }else if(game.status==='active'){
+      status.textContent=myTurn?'Sua vez! Escolha uma casa.':'Aguarde a jogada do seu contato.';
+      actions.append(playActionButton('Desistir da partida','resign','play-danger'));
+    }else{
+      status.textContent=game.status==='draw'?'Empate! Vocês jogaram muito bem.':
+        game.status==='won'?(game.winner===me.id?'🏆 Você venceu!':'Partida encerrada. Seu contato venceu.'):
+        game.status==='abandoned'?(game.winner===me.id?'Seu contato desistiu. Você venceu.':'Você desistiu da partida.'):
+        game.status==='declined'?'O convite foi recusado.':
+        game.status==='expired'?'O tempo dessa partida terminou.':'O convite foi cancelado.';
+      actions.append(playActionButton('🎮 Jogar novamente','invite','play-primary'));
+    }
+  }else{
+    status.textContent='Convide seu contato para uma partida de Jogo da Velha.';
+    actions.append(playActionButton('🎮 Convidar para jogar','invite','play-primary'));
+  }
+  for(let position=0;position<9;position++){
+    const square=document.createElement('button');square.type='button';square.className='play-square';
+    const mark=game?.board?.[position]||'';
+    square.textContent=mark==='X'?'✕':mark==='O'?'○':'';
+    if(mark==='O')square.classList.add('mark-o');
+    const canMark=!!game&&myTurn&&!mark&&!playBusy;
+    if(canMark)square.classList.add('is-playable');
+    square.disabled=!canMark;
+    square.setAttribute('role','gridcell');
+    square.setAttribute('aria-label','Linha '+(Math.floor(position/3)+1)+', coluna '+(position%3+1)+
+      (mark?', '+(mark==='X'?'X':'O'):', vazia'));
+    if(canMark)square.addEventListener('click',()=>void performPlayAction('move',position,square));
+    board.append(square);
+  }
+}
+async function refreshPlayGame(roomId,open=false){
+  if(open)playPanelOpen=true;
+  const allowed=rooms.find(r=>r.id===roomId)?.isDirect &&
+    !identities.some(p=>p.id===me?.id&&p.label==='Profissional');
+  if(!allowed||!me){playGame=null;renderPlayPanel();return;}
+  try{
+    const result=await api('/api/play/room/'+encodeURIComponent(roomId));
+    if(current!==roomId)return;
+    playRoomId=roomId;playGame=result.game;renderPlayPanel();
+  }catch(err){
+    if(current===roomId){playGame=null;playPanelOpen=false;renderPlayPanel();}
+    console.warn('VozChat Play indisponível:',err.message);
+  }
+}
+async function performPlayAction(action,position,button){
+  if(!me||!current||playBusy)return;
+  const roomId=current;
+  if(action==='resign'&&!confirm('Desistir desta partida? O outro jogador será declarado vencedor.'))return;
+  playBusy=true;button.disabled=true;renderPlayPanel();
+  try{
+    const url=action==='invite'?'/api/play/invite':'/api/play/'+encodeURIComponent(playGame?.id||'')+'/'+action;
+    const data=action==='invite'?{roomId}:action==='move'?{position}:{};
+    const result=await api(url,{method:'POST',data});
+    if(current!==roomId)return;
+    playGame=result.game;playRoomId=roomId;playPanelOpen=true;
+    if(action==='invite')toast('🎮 Convite enviado ao contato!');
+    else if(action==='accept')toast('Partida iniciada! Você joga com ○.');
+  }catch(err){toast(err.message);}
+  finally{playBusy=false;renderPlayPanel();}
+}
+$('#playButton').addEventListener('click',()=>{
+  playPanelOpen=!playPanelOpen;renderPlayPanel();
+  if(playPanelOpen)void refreshPlayGame(current,true);
+});
+$('#playClose').addEventListener('click',()=>{playPanelOpen=false;renderPlayPanel();});
 function renderMessages(){const list=$('#messages');list.replaceChildren();if(!messages.length){const msg=document.createElement('div');msg.className='mini-welcome';msg.textContent=current&&rooms.find(r=>r.id===current)?.isDirect?'Conversa iniciada ✨\nDiga oi para começar.':'Conversa iniciada ✨\nCompartilhe o convite para outras pessoas entrarem e começarem a trocar mensagens.';list.append(msg);}let lastDay='';for(const m of messages){const key=day(m.createdAt);if(key!==lastDay){const divider=document.createElement('div');divider.className='day-divider';divider.textContent=key;list.append(divider);lastDay=key;}renderMessage(m);}scrollDown();}
 function formatSize(size){if(size<1024)return size+' B';if(size<1048576)return (size/1024).toFixed(0)+' KB';if(size<1073741824)return (size/1048576).toFixed(1)+' MB';return (size/1073741824).toFixed(2)+' GB';}
 function renderMessage(m){
@@ -498,7 +609,16 @@ function renderMessage(m){
   if(m.senderId!==me.id){const av=document.createElement('div');av.className='sender-avatar';av.textContent=avatar(m.senderName);row.append(av);}
   const bubble=document.createElement('div');bubble.className='bubble';
   if(m.senderId!==me.id){const author=document.createElement('p');author.className='bubble-author';author.textContent=m.senderName;bubble.append(author);}
-  if(m.type==='audio'||m.type==='flowtalk'){
+  if(m.type==='game'&&m.gameId){
+    const card=document.createElement('div');card.className='game-invite-card';
+    const title=document.createElement('strong');title.textContent='🎮 Jogo da Velha';
+    const note=document.createElement('small');note.textContent='Convite privado para uma partida entre dois contatos.';
+    const button=document.createElement('button');button.type='button';button.className='game-open-button';
+    button.textContent='Abrir partida';button.addEventListener('click',async()=>{
+      playPanelOpen=true;await refreshPlayGame(m.roomId,true);
+    });
+    card.append(title,note,button);bubble.append(card);
+  }else if(m.type==='audio'||m.type==='flowtalk'){
     const lab=document.createElement('div');lab.className='audio-label';lab.textContent=(m.type==='flowtalk'?'📻 FlowTalk · ':'🎤 Mensagem de voz')+(m.duration?' · '+Math.round(m.duration)+'s':'');bubble.append(lab);
     const player=document.createElement('audio');player.controls=true;player.preload='none';player.src='/api/audio/'+encodeURIComponent(m.audioId);player.setAttribute('aria-label','Ouvir áudio enviado');bubble.append(player);
   }else if(['image','video','file'].includes(m.type)&&m.fileId){
@@ -525,7 +645,7 @@ function scrollDown() {const list=$('#messages');requestAnimationFrame(()=>{list
 function openDialog(id){document.getElementById(id).showModal();}
 
 function resetActiveChat(){
-  current=null;messages=[];
+  current=null;messages=[];playGame=null;playRoomId=null;playPanelOpen=false;$('#playPanel').hidden=true;
   $('#app').classList.remove('chat-open');
   $('#emptyChat').hidden=false;$('#activeChat').hidden=true;
   $('#messages').replaceChildren();
