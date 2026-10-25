@@ -381,3 +381,50 @@ html[data-theme="dark"] .appearance-toggle .appearance-moon{display:none}
  .neon-hint{font-size:9px!important}
  .neon-scorebar{font-size:12px}
 }
+
+
+/* Acesso permanente ao Play sem depender de uma conversa aberta. */
+.play-hub-entry{flex:none;display:flex;align-items:center;gap:8px;min-height:42px;margin:5px 19px 9px;
+  padding:9px 12px;border:1px solid var(--ui-edge);border-radius:13px;background:var(--ui-soft);
+  color:var(--ui-accent);font-size:13px;font-weight:800;text-align:left}
+.play-hub-entry span{flex:1;min-width:0;color:var(--ui-strong)}
+.play-hub-entry small{font-size:10px;color:var(--ui-muted);font-weight:600}
+.play-hub-entry:hover,.play-hub-entry:focus-visible{border-color:var(--ui-accent)}
+/* Linha de ações reservada, impedindo que o botão Jogar suma pelo overflow do cabeçalho. */
+.chat-play-bar{display:flex;align-items:center;gap:8px;flex:none;padding:7px 14px;
+  border-bottom:1px solid var(--ui-edge);background:var(--ui-card)}
+.chat-play-bar button{border:1px solid var(--ui-edge);border-radius:11px;min-height:36px;
+  font-size:11px;font-weight:780;padding:8px 12px;white-space:nowrap;min-width:0}
+.chat-play-start{background:var(--ui-accent);color:#fff;flex:1;border-color:transparent!important}
+.chat-play-history{background:var(--ui-soft);color:var(--ui-text);flex:1}
+.resume-last-chat{border:1px solid var(--ui-edge);border-radius:12px;padding:11px 15px;
+  color:var(--ui-accent);font-size:12px;font-weight:780;background:var(--ui-soft);margin-top:14px}
+.play-history-dialog{width:min(520px,calc(100vw - 24px));max-height:min(82dvh,760px);overflow-y:auto}
+.play-history-dialog h3{font-size:13px;color:var(--ui-strong);margin:16px 0 9px}
+.play-history-stats{border-radius:11px;background:var(--ui-soft);border:1px solid var(--ui-edge);
+  color:var(--ui-accent);font-size:12px;font-weight:750;padding:11px}
+.play-history-list{display:flex;flex-direction:column;gap:7px;max-height:255px;overflow-y:auto}
+.play-history-row{display:flex;gap:10px;align-items:center;border:1px solid var(--ui-edge);
+  border-radius:13px;background:var(--ui-panel);padding:11px 9px}
+.play-history-icon{display:grid;place-items:center;flex:none;width:37px;height:37px;
+  background:var(--ui-soft);border-radius:11px;color:var(--ui-accent);font-size:22px}
+.play-history-info{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}
+.play-history-info strong{color:var(--ui-strong);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.play-history-info span{font-size:11px;color:var(--ui-text)}
+.play-history-info small{font-size:10px;color:var(--ui-muted)}
+.play-history-open{background:var(--ui-soft);border:1px solid var(--ui-edge);color:var(--ui-accent);
+  border-radius:10px;padding:9px 8px;font-size:10px;font-weight:800;white-space:nowrap}
+.play-history-open:disabled{opacity:.6;white-space:normal;max-width:82px}
+.play-history-contacts{display:flex;flex-direction:column;gap:7px}
+.play-history-contact{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  border:1px solid var(--ui-edge);border-radius:12px;background:var(--ui-soft);
+  color:var(--ui-strong);padding:12px 13px;font-size:12px;text-align:left}
+.play-history-contact strong{color:var(--ui-accent);font-size:11px;white-space:nowrap}
+@media(max-width:630px){
+  #playButton{display:none!important}
+  .play-hub-entry{margin:4px 16px 8px;min-height:40px}
+  .chat-play-bar{padding:6px 9px;gap:6px}
+  .chat-play-bar button{min-height:34px;padding:7px 8px}
+  .play-history-dialog{max-height:86dvh;padding:19px}
+  .play-history-row{padding:8px 6px;gap:7px}
+}
