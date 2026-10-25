@@ -211,6 +211,7 @@ function passwordHash(p, salt=rand(16)) { return salt + ':' + crypto.scryptSync(
 function matchesPassword(p, stored) { try { const [salt, expected] = stored.split(':'); const actual = passwordHash(p, salt).split(':')[1]; return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex')); } catch { return false; } }
 function body(req, max=32768) { return new Promise((resolve,reject) => { let chunks=[],len=0; req.on('data', c=> { len += c.length; if (len > max) { reject(Object.assign(new Error('Arquivo ou mensagem grande demais.'),{status:413})); req.destroy(); } else chunks.push(c); }); req.on('end',()=>resolve(Buffer.concat(chunks))); req.on('error',reject); }); }
 const clients = new Map();
+const lastPushTestAt=new Map();
 async function notifyMembers(room, sender, msg) {
   if(!webPush)return;
   const recipients = new Set(room.members.filter(uid=>uid!==sender.id));
@@ -235,6 +236,26 @@ async function notifyMembers(room, sender, msg) {
     }
   }));
   if(changed)await save();
+}
+// Push de eventos pessoais, sem expor endpoints nem chaves.
+async function deliverPersonalPush(uid,payload,ttl=3600){
+  if(!webPush)return {registered:0,accepted:0,failed:0};
+  const records=(db.pushSubscriptions||[]).filter(s=>s.uid===uid);
+  let accepted=0,failed=0,changed=false;
+  await Promise.allSettled(records.map(async record=>{
+    try{
+      await webPush.sendNotification(record.subscription,JSON.stringify(payload),
+        {TTL:ttl,urgency:'high',timeout:10000});
+      accepted++;
+    }catch(err){
+      failed++;
+      if(err?.statusCode===404||err?.statusCode===410){
+        db.pushSubscriptions=db.pushSubscriptions.filter(s=>s!==record);changed=true;
+      }else console.warn('Notificacao push pessoal falhou',Number(err?.statusCode)||'network');
+    }
+  }));
+  if(changed)await save();
+  return {registered:records.length,accepted,failed};
 }
 function validPushSubscription(subscription) {
   if(!subscription||typeof subscription.endpoint!=='string'||subscription.endpoint.length>2048)return false;
@@ -389,7 +410,7 @@ function rejectCallsForMember(roomId,uid){
 
 async function api(req,res,url) {
   const p=url.pathname, method=req.method;
-  if(method==='GET' && p==='/api/health') return json(res,200,{ok:true,service:'vozchat',storage:pool?'postgres':'local',livekit:livekitConfigured?'configured':'not_configured',time:new Date().toISOString()});
+  if(method==='GET' && p==='/api/health') return json(res,200,{ok:true,service:'vozchat',storage:pool?'postgres':'local',livekit:livekitConfigured?'configured':'not_configured',push:pushEnabled?'configured':'not_configured',time:new Date().toISOString()});
   if(method==='POST' && (p==='/api/register'||p==='/api/login')) {
     const input=JSON.parse((await body(req)).toString('utf8'));
     let username=String(input.username||'').trim().toLowerCase(); const password=String(input.password||'');
@@ -415,7 +436,24 @@ async function api(req,res,url) {
   if(method==='POST'&&p==='/api/logout') { const token=cookie(req).vozchat_session; db.sessions=db.sessions.filter(s=>s.hash!==sha(token||'')); await save(); return json(res,200,{ok:true},{'Set-Cookie':sessionCookie(req,'',0)}); }
   if(method==='GET'&&p==='/api/bootstrap') return json(res,200,{user:safeUser(u),rooms:db.rooms.filter(r=>!r.inactive&&r.members.includes(u.id)).map(r=>roomView(r,u.id))});
   if(method==='GET'&&p==='/api/events') { res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-store, must-revalidate','Connection':'keep-alive','X-Accel-Buffering':'no'}); res.write(': connected\n\n'); const set=clients.get(u.id)||new Set(); set.add(res); clients.set(u.id,set); const keep=setInterval(()=>{try{res.write(': ping\n\n');}catch{}},20000); req.on('close',()=>{clearInterval(keep);set.delete(res);if(!set.size)clients.delete(u.id);}); return; }
-  if(method==='GET'&&p==='/api/push/config') return json(res,200,{enabled:pushEnabled,publicKey:pushEnabled?VAPID_PUBLIC_KEY:null});
+  if(method==='GET'&&p==='/api/push/config') return json(res,200,{
+    enabled:pushEnabled,publicKey:pushEnabled?VAPID_PUBLIC_KEY:null,
+    registered:(db.pushSubscriptions||[]).filter(record=>record.uid===u.id).length
+  });
+  if(method==='POST'&&p==='/api/push/test'){
+    if(!pushEnabled)return error(res,503,'As chaves de notificacoes push nao estao configuradas no servidor.');
+    const last=lastPushTestAt.get(u.id)||0;
+    if(Date.now()-last<15000)return error(res,429,'Espere 15 segundos para enviar outro teste.');
+    lastPushTestAt.set(u.id,Date.now());
+    const result=await deliverPersonalPush(u.id,{
+      title:'VozChat · Teste de push',
+      body:'Push enviado pelo servidor. Seu aparelho recebeu o aviso?',
+      kind:'test',tag:'vozchat-test-server'
+    },120);
+    if(!result.registered)return error(res,409,'Nenhum dispositivo inscrito. Ative as notificacoes primeiro.');
+    if(!result.accepted)return error(res,502,'O servico de push nao aceitou a notificacao. Verifique as chaves VAPID e a inscricao.');
+    return json(res,200,{ok:true,accepted:result.accepted,registered:result.registered,failed:result.failed});
+  }
   if(method==='POST'&&p==='/api/push/subscribe') {
     if(!pushEnabled)return error(res,503,'Notificações push não configuradas.');
     const input=JSON.parse((await body(req,8192)).toString('utf8'));
@@ -483,6 +521,11 @@ async function deactivateDirectRoom(room){
     const request={id:id(),from:u.id,to:target.id,createdAt:new Date().toISOString()};
     db.contactRequests ||= [];db.contactRequests.push(request);
     await save();emitContactRequests([u.id,target.id]);
+    void deliverPersonalPush(target.id,{
+      title:'👤 Nova solicitação de contato',
+      body:u.name+' (ID '+u.publicId+') quer adicionar você. Toque para aceitar ou recusar.',
+      kind:'contact-request',requestId:request.id,tag:'vozchat-contact-'+request.id
+    },86400).catch(e=>console.warn('Aviso de contato falhou',e?.message));
     return json(res,201,{status:'pending',request:contactRequestView(request,u.id)});
   }
   const requestMatch=/^\/api\/contacts\/requests\/([0-9a-f-]{36})\/(accept|decline|cancel)$/.exec(p);
@@ -504,6 +547,11 @@ async function deactivateDirectRoom(room){
       await save();
       for(const uid of room.members)push([uid],'room',roomView(room,uid));
       emitContactRequests([request.from,request.to]);
+      void deliverPersonalPush(request.from,{
+        title:'✅ Contato adicionado',
+        body:u.name+' aceitou sua solicitação de contato.',
+        kind:'contact-accepted',roomId:room.id,tag:'vozchat-contact-accepted-'+request.id
+      },86400).catch(e=>console.warn('Aviso de contato aceito falhou',e?.message));
       return json(res,200,{status:'accepted',room:roomView(room,u.id)});
     }
     await save();emitContactRequests([request.from,request.to]);
