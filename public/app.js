@@ -1150,53 +1150,106 @@ $('#removeContactButton').addEventListener('click',async()=>{
   finally{button.disabled=false;}
 });
 function showProfilePhoto(){
+  if(!me)return;
   paintAvatar($('#profilePreview'),me.name,me.avatarUrl);
   $('#removeProfilePhoto').hidden=!me.avatarUrl;
-  openDialog('profilePhotoDialog');
+  $('#profilePhotoStatus').textContent='Toque em Escolher foto para abrir sua galeria.';
+  const dialog=$('#profilePhotoDialog');
+  if(!dialog.open)openDialog('profilePhotoDialog');
 }
 $('#meAvatar').addEventListener('click',showProfilePhoto);
 $('#settingsProfilePhoto').addEventListener('click',()=>{
-  $('#settingsDialog').close();showProfilePhoto();
+  $('#settingsDialog').close();
+  showProfilePhoto();
 });
-$('#selectProfilePhoto').addEventListener('click',()=>$('#profilePhotoInput').click());
-$('#profilePhotoInput').addEventListener('change',async e=>{
-  const file=e.target.files?.[0];e.target.value='';
+// Seletor de arquivo Nativo: iOS PWA precisa receber o toque DIRETAMENTE no input.
+// Não chamar input.click() num elemento oculto: Safari pode bloquear esse gesto.
+$('#profilePhotoInput').addEventListener('change',async event=>{
+  const input=event.currentTarget;
+  const file=input.files?.[0];
+  input.value='';
   if(!file)return;
-  if(!file.type.startsWith('image/')){toast('Escolha uma imagem.');return;}
-  const button=$('#selectProfilePhoto');button.disabled=true;
-  let url=null;
+  const status=$('#profilePhotoStatus');
+  const control=input.closest('.profile-picker-control');
+  const allowed=['image/jpeg','image/png','image/webp','image/heic','image/heif'];
+  if(file.type&&!allowed.includes(file.type.toLowerCase())){
+    status.textContent='Arquivo inválido. Escolha uma foto da galeria.';
+    toast('Escolha uma imagem JPEG, PNG, WEBP ou HEIC.');return;
+  }
+  input.disabled=true;
+  control?.classList.add('is-busy');
+  status.textContent='Preparando foto…';
+  let url=null,bitmap=null;
   try{
     url=URL.createObjectURL(file);
-    const img=await new Promise((resolve,reject)=>{
-      const img=new Image();
-      img.onload=()=>resolve(img);img.onerror=()=>reject(Error('Não foi possível abrir esta foto.'));
-      img.src=url;
+    let image=null;
+    // Primeiro caminho: decoder nativo do navegador (inclui alguns formatos HEIC).
+    if(typeof createImageBitmap==='function'){
+      try{bitmap=await createImageBitmap(file);image=bitmap;}catch{}
+    }
+    // Fallback para o decoder HTML do Safari/WebKit.
+    if(!image){
+      image=await new Promise((resolve,reject)=>{
+        const picture=new Image();
+        picture.onload=()=>resolve(picture);
+        picture.onerror=()=>reject(new Error('O iPhone não conseguiu abrir esta imagem. Escolha uma foto JPG/PNG ou uma captura de tela.'));
+        picture.src=url;
+      });
+    }
+    const width=image.naturalWidth||image.width;
+    const height=image.naturalHeight||image.height;
+    if(!width||!height)throw new Error('Não foi possível ler as dimensões da foto.');
+    const canvas=document.createElement('canvas');
+    canvas.width=256;canvas.height=256;
+    const ctx=canvas.getContext('2d');
+    if(!ctx)throw new Error('Seu navegador não conseguiu preparar a foto.');
+    const size=Math.min(width,height);
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+    ctx.drawImage(image,(width-size)/2,(height-size)/2,size,size,0,0,256,256);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.8));
+    if(!blob||blob.size>512*1024)throw new Error('Não foi possível compactar a foto. Tente outra imagem.');
+    status.textContent='Salvando foto no seu perfil…';
+    const response=await fetch('/api/profile/avatar',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'image/jpeg'},
+      body:blob
     });
-    const canvas=document.createElement('canvas');canvas.width=256;canvas.height=256;
-    const ctx=canvas.getContext('2d');if(!ctx)throw Error('Edição de fotos indisponível neste aparelho.');
-    const size=Math.min(img.naturalWidth,img.naturalHeight);
-    ctx.drawImage(img,(img.naturalWidth-size)/2,(img.naturalHeight-size)/2,size,size,0,0,256,256);
-    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.78));
-    if(!blob||blob.size>512*1024)throw Error('A foto excede o tamanho permitido.');
-    const response=await fetch('/api/profile/avatar',{method:'POST',credentials:'same-origin',
-      headers:{'Content-Type':'image/jpeg'},body:blob});
     const result=await response.json().catch(()=>({}));
-    if(!response.ok)throw Error(result.error||'Não foi possível salvar.');
-    me=result.user;paintAvatar($('#meAvatar'),me.name,me.avatarUrl);
+    if(!response.ok)throw new Error(result.error||'Erro ao salvar a foto no servidor.');
+    me=result.user;
+    // Evitar imagem antiga após o upload no cache de webapps instalados.
+    if(me.avatarUrl)me.avatarUrl+='?v='+Date.now();
+    paintAvatar($('#meAvatar'),me.name,me.avatarUrl);
     paintAvatar($('#profilePreview'),me.name,me.avatarUrl);
     $('#removeProfilePhoto').hidden=false;
-    toast('Foto atualizada!');
-  }catch(err){toast(err.message||'Não foi possível atualizar a foto.');}
-  finally{if(url)URL.revokeObjectURL(url);button.disabled=false;}
+    status.textContent='Foto atualizada com sucesso!';
+    toast('Sua foto foi salva!');
+  }catch(err){
+    const message=err?.message||'Erro ao carregar foto. Tente novamente.';
+    status.textContent=message;
+    toast(message);
+  }finally{
+    try{bitmap?.close?.();}catch{}
+    if(url)URL.revokeObjectURL(url);
+    input.disabled=false;
+    control?.classList.remove('is-busy');
+  }
 });
 $('#removeProfilePhoto').addEventListener('click',async()=>{
+  const button=$('#removeProfilePhoto');button.disabled=true;
   try{
     const result=await api('/api/profile/avatar',{method:'DELETE'});
-    me=result.user;paintAvatar($('#meAvatar'),me.name,null);
+    me=result.user;
+    paintAvatar($('#meAvatar'),me.name,null);
     paintAvatar($('#profilePreview'),me.name,null);
-    $('#removeProfilePhoto').hidden=true;
+    button.hidden=true;
+    $('#profilePhotoStatus').textContent='Foto removida. Você pode escolher outra.';
     toast('Foto removida.');
-  }catch(err){toast(err.message);}
+  }catch(err){
+    $('#profilePhotoStatus').textContent=err.message;
+    toast(err.message);
+  }finally{button.disabled=false;}
 });
 
 const compactSettingKey='vozchat_compact_rooms';

@@ -111,7 +111,7 @@ test('interface possui controles separados de áudio/vídeo, alerta e privacidad
   assert.match(sw,/const isCall=payload\.kind==='call'/);
   assert.match(sw,/\/app\?open=/);
   assert.match(sw,/&call=/);
-  assert.match(sw,/vozchat-shell-v19/);
+  assert.match(sw,/vozchat-shell-v20/);
   assert.match(server,/camera=\(self\), microphone=\(self\)/);
   assert.match(css,/\.call-overlay/);
   assert.match(read('package.json'),/build:calls/);

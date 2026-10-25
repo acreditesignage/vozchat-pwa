@@ -104,3 +104,28 @@ test('interface: pendentes, perfil e exclusão de contato disponíveis',()=>{
   assert.match(server,/r\.inactive/);
   assert.match(server,/photo JPEG|foto JPEG|foto JPEG|Envie uma foto JPEG/);
 });
+
+test('iPhone instalado: seletor nativo de fotos recebe toque direto e mostra erros',()=>{
+  const root=path.resolve(import.meta.dirname,'..');
+  const html=fs.readFileSync(path.join(root,'public/index.html'),'utf8');
+  const css=fs.readFileSync(path.join(root,'public/styles.css'),'utf8');
+  const app=fs.readFileSync(path.join(root,'public/app.js'),'utf8');
+  const input=html.match(/<input[^>]+id="profilePhotoInput"[^>]*>/)?.[0]||'';
+  assert.ok(input,'seletor de fotos existe');
+  assert.match(input,/type="file"/);
+  assert.match(input,/accept="image\/jpeg,image\/png,image\/webp,image\/heic,image\/heif"/);
+  assert.doesNotMatch(input,/\shidden(?:[ >])/);
+  assert.match(html,/id="profilePhotoStatus"[^>]*role="status"/);
+  assert.match(html,/class="profile-picker-control"/);
+  assert.match(css,/#profilePhotoInput\s*\{[^}]*position:absolute;inset:0;z-index:2;[^}]*width:100%;height:100%;/);
+  assert.match(css,/\.sidebar-foot \.profile-avatar-button\{[^}]*min-width:50px/);
+  assert.doesNotMatch(app,/selectProfilePhoto'\)\.addEventListener\('click'/,'não depender de click indireto em input oculto');
+  assert.match(app,/const input=event\.currentTarget;/);
+  assert.match(app,/await createImageBitmap\(file\)/);
+  assert.match(app,/picture\.onload=\(\)=>resolve\(picture\)/);
+  assert.match(app,/canvas\.toBlob\(resolve,'image\/jpeg',0\.8\)/);
+  assert.match(app,/status\.textContent='Salvando foto no seu perfil/);
+  assert.match(app,/\?v='\+Date\.now\(\)/);
+  assert.match(app,/input\.disabled=false/);
+  assert.doesNotThrow(()=>new Function(app));
+});

@@ -18,7 +18,7 @@
       <a href="/talk" class="quick-talk-link" aria-label="Abrir FlowTalk"><span class="quick-talk-orb" aria-hidden="true"></span><span>FlowTalk</span><span class="quick-talk-arrow" aria-hidden="true">→</span></a>
       <div class="contact-request-entry"><button id="pendingContactsButton" type="button" class="pending-contacts-button"> <span>Solicitações de contato</span><span id="pendingContactsCount" class="pending-count" hidden>0</span></button></div>
       <div id="roomList" class="room-list"></div>
-      <footer class="sidebar-foot"><button class="user-avatar profile-avatar-button" id="meAvatar" type="button" aria-label="Alterar minha foto" title="Adicionar foto de perfil">V</button><div class="me-info"><strong id="meName">Você</strong><button id="copyMyId" class="copy-id-button" type="button" title="Copiar meu ID" aria-label="Copiar meu ID"><span id="meUsername">ID --</span> <span aria-hidden="true">⧉</span></button></div><button id="logout" class="icon-button" aria-label="Sair da conta" title="Sair da conta">↪</button></footer>
+      <footer class="sidebar-foot"><button class="user-avatar profile-avatar-button" id="meAvatar" type="button" aria-label="Editar foto do meu perfil" title="Toque para alterar sua foto">V</button><div class="me-info"><strong id="meName">Você</strong><button id="copyMyId" class="copy-id-button" type="button" title="Copiar meu ID" aria-label="Copiar meu ID"><span id="meUsername">ID --</span> <span aria-hidden="true">⧉</span></button></div><button id="logout" class="icon-button" aria-label="Sair da conta" title="Sair da conta">↪</button></footer>
     </aside>
     <section class="chat" id="chat">
       <div class="empty-chat" id="emptyChat"><div class="empty-symbol"><span>◖◗</span><i>✳</i></div><h2>Suas conversas começam aqui</h2><p>Adicione alguém pelo ID para conversar diretamente, ou crie um grupo e compartilhe o convite.</p><div class="empty-actions"><button class="primary inline" id="emptyContact" type="button">+ Adicionar por ID</button><button class="secondary inline" id="emptyCreate" type="button">Criar grupo</button></div><div class="feature-row"><span>✦ Mensagens em tempo real</span><span>◉ Áudios pelo microfone</span><span>↗ Convites privados</span></div></div>
@@ -57,8 +57,11 @@
     <div class="dialog-head"><div class="dialog-icon">👤</div><button class="dialog-close" type="button" data-close="profilePhotoDialog" aria-label="Fechar">×</button></div>
     <h2>Minha foto</h2><p>Escolha uma foto sua para aparecer nas conversas. Formatos JPEG, PNG ou WEBP.</p>
     <div id="profilePreview" class="profile-photo-preview">?</div>
-    <input id="profilePhotoInput" type="file" accept="image/*" hidden>
-    <button id="selectProfilePhoto" class="primary" type="button">Selecionar foto</button>
+    <div class="profile-picker-control">
+      <span id="selectProfilePhoto" class="profile-picker-label" aria-hidden="true">📷 Escolher foto</span>
+      <input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" aria-label="Escolher foto da galeria do celular">
+    </div>
+    <p id="profilePhotoStatus" class="profile-photo-status" role="status" aria-live="polite">Toque em Escolher foto para abrir sua galeria.</p>
     <button id="removeProfilePhoto" class="secondary notification-secondary" type="button">Remover foto</button>
   </dialog>
   <dialog id="contactDialog" class="dialog"><form id="contactForm"><div class="dialog-head"><div class="dialog-icon">#</div><button class="dialog-close" type="button" data-close="contactDialog" aria-label="Fechar">×</button></div><h2>Adicionar pessoa</h2><p>Digite o ID para enviar uma solicitação. A conversa só ficará disponível depois que a pessoa aceitar.</p><label class="field">ID da pessoa<input id="contactId" type="text" inputmode="numeric" pattern="[0-9]{2,80}" maxlength="80" autocomplete="off" placeholder="Ex.: 12" required></label><button class="primary" type="submit" id="contactSubmit">Enviar solicitação →</button></form></dialog>
