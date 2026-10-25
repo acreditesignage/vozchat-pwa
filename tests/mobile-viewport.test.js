@@ -21,5 +21,5 @@ test('layout do iPhone sem zoom involuntário mantém a ampliação acessível',
   assert.match(mobile,/\.flowtalk-hold\.talking\{transform:none\}/);
   assert.doesNotMatch(mobile,/touch-action:\s*none\s*;/);
   assert.doesNotMatch(css,/position:fixed[^}]*\sbody\s*\{/);
-  assert.match(worker,/vozchat-shell-v33/);
+  assert.match(worker,/vozchat-shell-v34/);
 });
