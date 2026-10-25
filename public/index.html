@@ -55,7 +55,39 @@
     <section class="chat" id="chat">
       <div class="empty-chat" id="emptyChat"><div class="empty-symbol"><span>◖◗</span><i>✳</i></div><h2>Suas conversas começam aqui</h2><p>Adicione alguém pelo ID para conversar diretamente, ou crie um grupo e compartilhe o convite.</p><div class="empty-actions"><button class="primary inline" id="emptyContact" type="button">+ Adicionar por ID</button><button class="secondary inline" id="emptyCreate" type="button">Criar grupo</button></div><div class="feature-row"><span>✦ Mensagens em tempo real</span><span>◉ Áudios pelo microfone</span><span>↗ Convites privados</span></div></div>
       <div id="activeChat" class="active-chat" hidden>
-        <header class="chat-top"><button id="mobileBack" class="back-button" aria-label="Voltar às conversas">‹</button><div id="headerAvatar" class="chat-avatar">C</div><div class="chat-title"><strong id="roomName"></strong><span id="memberCount">Conversa privada</span></div><button id="removeContactButton" class="remove-contact-button" type="button" title="Excluir contato" aria-label="Excluir contato" hidden><span aria-hidden="true">×</span></button><button id="groupManageButton" class="outline-button" type="button" title="Participantes e opções do grupo" hidden>⚙ <span>Grupo</span></button><button id="inviteButton" class="outline-button">↗ <span>Convidar</span></button><button id="callAudioButton" class="call-start-button" type="button" title="Chamada de áudio" aria-label="Iniciar chamada de áudio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h4l1 5-2 2a16 16 0 0 0 5 5l2-2 5 1v4a3 3 0 0 1-3 3C10 21 3 14 3 6a3 3 0 0 1 3-3Z"/></svg></button><button id="callVideoButton" class="call-start-button" type="button" title="Chamada de vídeo" aria-label="Iniciar chamada de vídeo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="14" height="14" rx="3"/><path d="m16 10 6-4v12l-6-4"/></svg></button><button id="playButton" class="outline-button play-launch" type="button" aria-label="Abrir VozChat Play" title="VozChat Play · Jogo da Velha" hidden>🎮 <span>Jogar</span></button><button id="flowtalkToggle" class="outline-button" type="button" aria-pressed="false"><i class="flow-orb-small" aria-hidden="true"></i> <span>FlowTalk</span></button></header>
+        <header class="chat-top"><button id="mobileBack" class="back-button" aria-label="Voltar às conversas">‹</button><div id="headerAvatar" class="chat-avatar">C</div><div class="chat-title"><strong id="roomName"></strong><span id="memberCount">Conversa privada</span></div><button id="removeContactButton" class="remove-contact-button" type="button" title="Excluir contato" aria-label="Excluir contato" hidden><span aria-hidden="true">×</span></button><button id="groupManageButton" class="outline-button" type="button" title="Participantes e opções do grupo" hidden>⚙ <span>Grupo</span></button><button id="inviteButton" class="outline-button">↗ <span>Convidar</span></button><button id="callAudioButton" class="call-start-button" type="button" title="Chamada de áudio" aria-label="Iniciar chamada de áudio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h4l1 5-2 2a16 16 0 0 0 5 5l2-2 5 1v4a3 3 0 0 1-3 3C10 21 3 14 3 6a3 3 0 0 1 3-3Z"/></svg></button><button id="callVideoButton" class="call-start-button" type="button" title="Chamada de vídeo" aria-label="Iniciar chamada de vídeo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="14" height="14" rx="3"/><path d="m16 10 6-4v12l-6-4"/></svg></button><button id="playButton" class="outline-button play-launch" type="button" aria-label="Abrir VozChat Play" title="VozChat Play · Escolher jogo" hidden>🎮 <span>Jogar</span></button><button id="flowtalkToggle" class="outline-button" type="button" aria-pressed="false"><i class="flow-orb-small" aria-hidden="true"></i> <span>FlowTalk</span></button></header>
+        <section id="playChooser" class="play-chooser" hidden aria-label="Escolher jogo no VozChat Play">
+          <div class="play-chooser-head"><strong>🎮 VozChat Play</strong><span>Escolha uma aventura para dois contatos</span></div>
+          <div class="play-chooser-grid">
+            <button id="chooseNeonMaze" class="play-chooser-game" type="button">
+              <span class="play-chooser-art play-neon-art" aria-hidden="true">✦ <b>◆</b> ✧</span>
+              <strong>Labirinto Neon</strong><small>Recolha luzes e escape dos drones, juntos</small>
+            </button>
+            <button id="chooseTicTacToe" class="play-chooser-game" type="button">
+              <span class="play-chooser-art play-tic-art" aria-hidden="true">× ○<b>×</b></span>
+              <strong>Jogo da Velha</strong><small>Duelo rápido de estratégia</small>
+            </button>
+          </div>
+        </section>
+        <section id="neonPanel" class="neon-panel" hidden aria-label="Labirinto Neon · jogo cooperativo">
+          <div class="neon-heading">
+            <div class="neon-heading-title"><span class="neon-logo" aria-hidden="true">✦</span>
+              <div><strong>Labirinto Neon</strong><small>Cooperação · 2 jogadores</small></div>
+            </div>
+            <button id="neonClose" type="button" class="play-close" aria-label="Fechar labirinto e retornar ao chat">×</button>
+          </div>
+          <div class="neon-scorebar"><span id="neonScore">✦ 0 pontos</span><span id="neonLives">♥ ♥ ♥</span></div>
+          <p id="neonStatus" class="neon-status" role="status" aria-live="polite">Escolha um contato e envie um convite.</p>
+          <canvas id="neonCanvas" width="510" height="390" aria-label="Labirinto com dois jogadores, pontos e drones"></canvas>
+          <div id="neonActions" class="neon-actions"></div>
+          <div class="neon-pad" aria-label="Controles de movimento">
+            <button type="button" data-neon-dir="up" aria-label="Mover para cima">▲</button>
+            <div><button type="button" data-neon-dir="left" aria-label="Mover para a esquerda">◀</button>
+              <button type="button" data-neon-dir="down" aria-label="Mover para baixo">▼</button>
+              <button type="button" data-neon-dir="right" aria-label="Mover para a direita">▶</button></div>
+          </div>
+          <p class="neon-hint">Use as setas, WASD ou os controles. Coletem todas as luzes juntos e evitem os drones.</p>
+        </section>
         <section id="playPanel" class="play-panel" aria-label="VozChat Play · Jogo da Velha" hidden>
           <div class="play-head">
             <div class="play-brand"><span class="play-logo">✕ ○</span><div><strong>VozChat Play</strong><small>Jogo da Velha · 2 jogadores</small></div></div>

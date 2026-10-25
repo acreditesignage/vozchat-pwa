@@ -324,3 +324,60 @@ html[data-theme="dark"] .appearance-toggle .appearance-moon{display:none}
   .play-head{max-width:100%}.play-footnote{font-size:9px!important}
   .play-launch{padding:7px 9px;min-width:35px}
 }
+
+
+/* VozChat Play: dois jogos privados; arcade original inspirado nos labirintos clássicos. */
+.play-chooser,.neon-panel{flex:none;background:var(--ui-card);color:var(--ui-text);
+  border-bottom:1px solid var(--ui-edge);padding:13px 18px;overflow:auto}
+.play-chooser[hidden],.neon-panel[hidden]{display:none!important}
+.play-chooser-head{display:flex;flex-direction:column;gap:3px;margin:0 auto 12px;max-width:490px}
+.play-chooser-head strong{font-size:15px;color:var(--ui-strong)}
+.play-chooser-head span{font-size:11px;color:var(--ui-muted)}
+.play-chooser-grid{max-width:490px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:auto}
+.play-chooser-game{display:flex;flex-direction:column;align-items:start;text-align:left;min-width:0;
+  border-radius:15px;padding:11px;gap:5px;background:var(--ui-soft);
+  color:var(--ui-text);border:1px solid var(--ui-edge)}
+.play-chooser-game:focus-visible{outline:2px solid var(--ui-accent)}
+.play-chooser-game strong{font-size:12px;color:var(--ui-strong)}
+.play-chooser-game small{font-size:10px;color:var(--ui-muted);line-height:1.4}
+.play-chooser-art{display:flex;gap:7px;align-items:center;justify-content:center;
+  width:100%;height:65px;border-radius:10px;font-size:28px;font-weight:850}
+.play-chooser-art b{font-size:21px}
+.play-neon-art{color:#73ffff;background:radial-gradient(circle at 15% 50%,#2472c1,#08172c 75%)}
+.play-neon-art b{color:#ffae83}
+.play-tic-art{color:#99b8ff;background:linear-gradient(120deg,#1c295c,#35216c)}
+.play-tic-art b{color:#ff87bb}
+.neon-panel{display:flex;flex-direction:column;align-items:center;gap:8px;max-height:min(76dvh,650px);padding:12px 12px 10px}
+.neon-heading{display:flex;justify-content:space-between;align-items:center;width:min(100%,510px)}
+.neon-heading-title{display:flex;align-items:center;gap:9px}
+.neon-heading-title>div{display:flex;flex-direction:column;gap:3px}
+.neon-heading-title strong{font-size:14px;color:var(--ui-strong)}
+.neon-heading-title small{font-size:10px;color:var(--ui-muted)}
+.neon-logo{border-radius:11px;width:36px;height:36px;display:grid;place-items:center;
+  color:#b1ffff;background:linear-gradient(135deg,#10204b,#2267b3);font-size:25px}
+.neon-scorebar{display:flex;justify-content:space-between;width:min(100%,510px);
+  font-size:13px;font-weight:850;color:var(--ui-accent)}
+.neon-scorebar span:last-child{color:#f97ea5;letter-spacing:3px}
+.neon-status{margin:0!important;text-align:center;font-size:11px!important;
+  line-height:1.45!important;font-weight:700;color:var(--ui-muted)!important}
+#neonCanvas{width:min(100%,510px);height:auto;aspect-ratio:17/13;display:block;
+  background:#081426;border:1px solid #255c98;border-radius:12px;touch-action:none}
+.neon-actions{display:flex;justify-content:center;gap:9px;flex-wrap:wrap}
+.neon-actions button{min-height:38px;border:1px solid var(--ui-edge);background:var(--ui-soft);
+  color:var(--ui-text);font-size:12px;font-weight:780;padding:9px 15px;border-radius:11px}
+.neon-actions .neon-primary{border:0;background:var(--ui-accent);color:white}
+.neon-pad{display:flex;align-items:center;flex-direction:column;gap:4px;user-select:none;touch-action:none}
+.neon-pad>div{display:flex;gap:5px}
+.neon-pad button{height:37px;width:49px;border-radius:9px;border:1px solid var(--ui-edge);
+  background:var(--ui-soft);color:var(--ui-accent);font-size:17px;font-weight:850;touch-action:none}
+.neon-pad button:active{background:var(--ui-accent);color:white}
+.neon-pad button:disabled{opacity:.32;cursor:default}
+.neon-hint{font-size:10px!important;color:var(--ui-muted)!important;margin:0!important;text-align:center}
+@media(max-width:630px){
+ .play-chooser{padding:10px 13px}.play-chooser-art{height:50px}
+ .neon-panel{max-height:70dvh;gap:5px;padding:8px 10px}
+ #neonCanvas{width:min(100%,410px)}
+ .neon-pad{gap:3px}.neon-pad button{width:50px;height:34px}
+ .neon-hint{font-size:9px!important}
+ .neon-scorebar{font-size:12px}
+}
