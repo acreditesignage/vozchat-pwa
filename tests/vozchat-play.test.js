@@ -61,16 +61,9 @@ test('VozChat Play: convite, aceite, turnos, vitória, revanche e privacidade re
   assert.equal((await req('POST','/api/play/'+gameId+'/move',{position:firstX===0?1:0},ca)).status,200);
   assert.equal((await req('POST','/api/play/'+gameId+'/move',{position:4},cb)).status,200);
   const finish=await req('POST','/api/play/'+gameId+'/move',{position:2},ca);
-  if(firstX===0){
-    assert.equal(finish.status,200);assert.equal(finish.body.game.status,'won');
-    assert.equal(finish.body.game.winner,a.body.user.id);
-  }else{
-    assert.equal(finish.status,200);
-    assert.equal(finish.body.game.status,'active');
-    assert.equal((await req('POST','/api/play/'+gameId+'/move',{position:5},cb)).status,200);
-    const winning=await req('POST','/api/play/'+gameId+'/move',{position:2},ca);
-    assert.equal(winning.body.game.status,'won');
-  }
+  assert.equal(finish.status,200);
+  assert.equal(finish.body.game.status,'won');
+  assert.equal(finish.body.game.winner,a.body.user.id);
   assert.equal((await req('POST','/api/play/'+gameId+'/move',{position:8},cb)).status,409);
   const old=await req('GET','/api/play/room/'+rid,null,cb);
   assert.equal(old.body.game.status,'won');
