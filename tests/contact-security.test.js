@@ -46,6 +46,13 @@ test('foto de perfil privada, solicitação de contato, recusa e exclusão segur
   const eve=await req('POST','/api/register',{name:'Carla',password:'senha-segura-125'});
   for(const result of [alice,bob,eve])assert.equal(result.status,201);
   const a=alice.cookie,b=bob.cookie,c=eve.cookie;
+  const pushConfig=await req('GET','/api/push/config',undefined,b);
+  assert.equal(pushConfig.status,200);
+  assert.equal(pushConfig.data.enabled,false);
+  assert.equal(pushConfig.data.registered,0);
+  assert.equal((await req('POST','/api/push/test',{},b)).status,503);
+  const health=(await req('GET','/api/health')).data;
+  assert.equal(health.push,'not_configured');
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9rZi4BUAAAAASUVORK5CYII=','base64');
   const avatar=await req('POST','/api/profile/avatar',png,a,{'Content-Type':'image/png'});
   assert.equal(avatar.status,200);
@@ -106,6 +113,16 @@ test('interface: pendentes, perfil e exclusão de contato disponíveis',()=>{
     assert.ok(html.includes('id="'+id+'"'),id);
   }
   assert.match(client,/contact-requests-changed/);
+  assert.match(client,/knownIncomingRequestIds/);
+  assert.match(client,/testPushNotification/);
+  assert.match(client,/testCallRingtone/);
+  assert.match(client,/requestsParam==='1'/);
+  assert.match(server,/deliverPersonalPush\(target\.id/);
+  assert.match(server,/kind:'contact-request'/);
+  assert.match(server,/kind:'contact-accepted'/);
+  assert.match(read('public/sw.js'),/isContactRequest\?'\/app\?requests=1'/);
+  assert.match(html,/id="testPushNotification"/);
+  assert.match(html,/id="testCallRingtone"/);
   assert.match(client,/\/api\/contacts\/requests/);
   assert.match(client,/canvas\.toBlob/);
   assert.match(client,/stopLiveRadio\(\);resetActiveChat\(\)/);
