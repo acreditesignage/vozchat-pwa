@@ -123,10 +123,10 @@ test('interface possui controles separados de áudio/vídeo, alerta e privacidad
   assert.match(app,/call-incoming/);
   assert.match(app,/call-ended/);
   assert.match(app,/function renderCallHistory/);
-  assert.match(app,//api/calls/history/);
+  assert.ok(app.includes("'/api/calls/history'"));
   assert.match(html,/id="callHistoryList"/);
   assert.match(html,/data-call-filter="missed"/);
-  assert.match(server,//api/calls/history/);
+  assert.ok(server.includes("p==='/api/calls/history'"));
   assert.match(app,/VozChatRingtone\?\.start/);
   assert.match(app,/VozChatRingtone\?\.stop/);
   assert.match(html,/src="\/call-ringtone.js"/);
