@@ -4,8 +4,10 @@ const joinParam = new URLSearchParams(location.search).get('join');
 const openParam = new URLSearchParams(location.search).get('open');
 const talkParam = new URLSearchParams(location.search).get('talk');
 const callParam = new URLSearchParams(location.search).get('call');
+const requestsParam = new URLSearchParams(location.search).get('requests');
 let currentCall=null,callEngine=null,joiningCall=false,callAttempt=0;
 let pendingContactRequests=[];
+let knownIncomingRequestIds=null;
 let callHistory=[],callHistoryFilter='all';
 let uiListMode='chats',uiListFilter='all',favorites=new Set();
 const avatar = name => (name||'?').slice(0,1).toUpperCase();
@@ -19,7 +21,12 @@ function sortRooms() {rooms.sort((a,b)=>new Date(b.last?.createdAt||b.createdAt)
 function authMode(register) {isRegister=register;$('#nameField').hidden=!register;$('#realName').required=register;$('#usernameField').hidden=register;$('#username').required=!register;$('#authDescription').textContent=register?'Escolha como quer ser chamado. Seu ID exclusivo será criado automaticamente.':'Entre com seu ID numérico (ou usuário antigo) e sua senha.';$('#authTitle').textContent=register?'Crie sua conta':'Entre na sua conta';$('#authSubmit').innerHTML=register?'Criar conta <span>→</span>':'Entrar <span>→</span>';$('#authSwitchLabel').firstChild.textContent=register?'Já possui uma conta? ':'Ainda não tem conta? ';$('#authSwitch').textContent=register?'Entrar':'Criar conta';$('#password').autocomplete=register?'new-password':'current-password';}
 $('#authSwitch').addEventListener('click',()=>authMode(!isRegister));
 $('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#authSubmit');btn.disabled=true;try {const creating=isRegister;const result=await api(creating?'/api/register':'/api/login',{method:'POST',data:creating?{name:$('#realName').value,password:$('#password').value}:{username:$('#username').value,password:$('#password').value}});$('#password').value='';await start();if(creating&&result.user?.publicId){$('#welcomePublicId').textContent=result.user.publicId;openDialog('welcomeDialog');}}catch(err){toast(err.message);}finally{btn.disabled=false;}});
-async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();loadFavoriteRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
+async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;rooms=data.rooms;sortRooms();loadFavoriteRooms();$('#auth').hidden=true;$('#app').hidden=false;$('#meName').textContent=me.name;$('#meUsername').textContent='ID '+(me.publicId||me.username);paintAvatar($('#meAvatar'),me.name,me.avatarUrl);renderRooms();await refreshContactRequests();connectEvents();void autoRestoreNotifications();if(openParam && rooms.some(r=>r.id===openParam)){await openRoom(openParam);history.replaceState({},'', '/app');if(talkParam==='1')void openLiveRadio();}void syncPendingCalls();
+  if(requestsParam==='1'){
+    history.replaceState({},'', '/app');
+    $('#pendingContactsButton').click();
+  }
+  if(joinParam){try{const joined=await api('/api/rooms/join',{method:'POST',data:{invite:joinParam}});upsertRoom(joined.room);history.replaceState({},'', '/app');await openRoom(joined.room.id);toast('Você entrou na conversa!');}catch(err){toast(err.message);}}}
 function paintAvatar(element,name,url){
   element.replaceChildren();
   element.textContent=avatar(name);
@@ -266,7 +273,12 @@ function incomingAlert(msg){
   if(document.visibilityState==='visible'){soundAlert();vibrateAlert();}
   else{unreadAlerts++;document.title='('+unreadAlerts+') VozChat · nova mensagem';}
 }
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){unreadAlerts=0;document.title=defaultTitle;}});
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden){
+    unreadAlerts=0;document.title=defaultTitle;
+    if(me){void refreshContactRequests();void syncPendingCalls();}
+  }
+});
 function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;}
 function pushInstallHint(){return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone);}
 async function refreshNotificationStatus(){
@@ -285,12 +297,18 @@ async function refreshNotificationStatus(){
   }
   try{
     const config=await api('/api/push/config');
-    if(!config.enabled){status.textContent='O servidor ainda não configurou as notificações push.';enable.disabled=true;return;}
+    if(!config.enabled){
+      status.textContent='Push indisponível no servidor: faltam chaves VAPID. O administrador precisa configurá-las no Render.';
+      enable.disabled=true;enable.hidden=false;disable.hidden=true;return;
+    }
     const registration=await navigator.serviceWorker.ready;
     const subscription=await registration.pushManager.getSubscription();
     const active=Notification.permission==='granted'&&subscription&&
       (localStorage.getItem('vozchat_push_uid')===me?.id);
-    status.textContent=active?'Ativadas neste aparelho. Você receberá avisos de novas mensagens.':'Toque em Ativar para permitir notificações deste aparelho.';
+    status.textContent=active?
+      'Inscrição ativa neste aparelho. Use o teste de push para verificar a entrega do servidor.':
+      Notification.permission==='granted'?'Permissão concedida, mas este aparelho não está inscrito. Toque em Ativar para concluir.':
+      'Toque em Ativar para permitir avisos de mensagens, contatos e chamadas.';
     enable.disabled=false;enable.hidden=!!active;disable.hidden=!active;
   }catch{status.textContent='Não foi possível consultar as notificações. Tente novamente.';}
 }
@@ -334,6 +352,25 @@ $('#disableNotifications').addEventListener('click',async()=>{
   }catch(err){toast(err.message||'Falha ao desativar notificações.');}
   void refreshNotificationStatus();
 });
+$('#testPushNotification').addEventListener('click',async()=>{
+  const button=$('#testPushNotification');button.disabled=true;
+  try{
+    const result=await api('/api/push/test',{method:'POST',data:{}});
+    toast('Servidor aceitou o push para '+result.accepted+' aparelho(s). Confira a central de notificações.');
+    $('#notificationStatus').textContent='Teste enviado ao serviço de push. O aviso deve aparecer no dispositivo inscrito.';
+  }catch(err){toast(err.message);}
+  finally{button.disabled=false;void refreshNotificationStatus();}
+});
+$('#testCallRingtone').addEventListener('click',async()=>{
+  if(currentCall){toast('Finalize a chamada atual antes de testar a campainha.');return;}
+  unlockAlertAudio();
+  if(alertAudio?.state==='suspended')await alertAudio.resume().catch(()=>{});
+  window.VozChatRingtone?.start({
+    id:'vozchat-teste-campainha-'+Date.now(),incoming:true,expiresAt:Date.now()+7000,
+    audio:()=>alertAudio,sound:()=>true,vibrate:()=>notifyPrefs.vibrate!==false
+  });
+  toast('Campainha de teste: o som repetirá por sete segundos.');
+});
 $('#testNotifications').addEventListener('click',async()=>{
   unlockAlertAudio();soundAlert();vibrateAlert();
   toast('Teste realizado. Vibração depende do aparelho.');
@@ -345,11 +382,15 @@ $('#testNotifications').addEventListener('click',async()=>{
 async function autoRestoreNotifications(){
   if(!pushSupported()||Notification.permission!=='granted')return;
   try{
-    if(localStorage.getItem('vozchat_push_uid')!==me?.id)return;
+    const storedUid=localStorage.getItem('vozchat_push_uid');
+    if(storedUid&&storedUid!==me?.id)return;
     const config=await api('/api/push/config');if(!config.enabled)return;
     const registration=await navigator.serviceWorker.ready;
     const subscription=await registration.pushManager.getSubscription();
-    if(subscription)await api('/api/push/subscribe',{method:'POST',data:{subscription:subscription.toJSON()}});
+    if(subscription){
+      await api('/api/push/subscribe',{method:'POST',data:{subscription:subscription.toJSON()}});
+      localStorage.setItem('vozchat_push_uid',me.id);
+    }
   }catch{}
 }
 function connectEvents(){
@@ -1252,6 +1293,18 @@ async function refreshContactRequests(){
     const result=await api('/api/contacts/requests');
     pendingContactRequests=result.requests||[];
     const incoming=pendingContactRequests.filter(r=>r.kind==='incoming');
+    const currentIds=new Set(incoming.map(r=>r.id));
+    if(knownIncomingRequestIds!==null){
+      const newRequests=incoming.filter(r=>!knownIncomingRequestIds.has(r.id));
+      if(newRequests.length){
+        if(!document.hidden){
+          soundAlert();vibrateAlert();
+          toast('👤 '+newRequests[0].name+' enviou uma solicitação de contato.');
+        }
+        $('#pendingContactsButton').classList.add('has-new-request');
+      }
+    }
+    knownIncomingRequestIds=currentIds;
     const badge=$('#pendingContactsCount');
     badge.hidden=incoming.length===0;
     badge.textContent=String(incoming.length);
@@ -1301,6 +1354,7 @@ async function refreshContactRequests(){
   }catch(err){console.warn('Solicitações indisponíveis',err.message);}
 }
 $('#pendingContactsButton').addEventListener('click',async()=>{
+  $('#pendingContactsButton').classList.remove('has-new-request');
   await refreshContactRequests();
   const renderInside=async()=>{
     // Reutilizar os controles após abrir o modal.
