@@ -22,11 +22,7 @@ let toastTimer;
 function toast(msg) {const el=$('#toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3700);}
 async function api(url,{method='GET',data,headers={}}={}) {let opt={method,credentials:'same-origin',headers};if(data!==undefined){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(data);}let response;try{response=await fetch(url,opt);}catch{throw new Error('Falha na conexão com o servidor.');}let json=await response.json().catch(()=>({}));if(!response.ok)throw new Error(json.error||'Não foi possível concluir.');return json;}
 const neonPlay=window.createNeonPlay({api,toast,getMe:()=>me,getRoom:()=>current,
-  onInvitation:()=>{
-    $('#playChooser').hidden=true;
-    playPanelOpen=false;renderPlayPanel();
-    soundAlert();vibrateAlert();toast('🎮 Seu contato convidou você para o Labirinto Neon!');
-  }
+  onInvitation:()=>{}
 });
 const playHistory=window.createPlayHistory({
   api,toast,getMe:()=>me,getIdentities:()=>identities,getRooms:()=>rooms,getRoom:()=>current,
@@ -470,8 +466,9 @@ function connectEvents(){
       (!playGame||playGame.id!==game.id||playGame.status!=='pending');
     playGame=game;playRoomId=game.roomId;
     if(game.status!=='active')void playHistory.refresh();
-    if(isInvitation){neonPlay.close();$('#playChooser').hidden=true;playPanelOpen=true;
-      soundAlert();vibrateAlert();toast('🎮 Você recebeu um convite para jogar!');}
+    if(isInvitation){
+      $('#playChooser').hidden=true;
+    }
     renderPlayPanel();
   });
   events.addEventListener('talk-incoming',event=>{
@@ -631,6 +628,57 @@ async function performPlayAction(action,position,button){
   }catch(err){toast(err.message);}
   finally{playBusy=false;renderPlayPanel();}
 }
+let incomingPlay=null;
+let lastPlayAlert='';
+function showIncomingPlayInvite(invitation){
+  if(!me||!invitation||!['tic','neon'].includes(invitation.kind)||!rooms.some(r=>r.id===invitation.roomId&&r.isDirect))return;
+  if(!/^[0-9a-f-]{36}$/i.test(invitation.id||''))return;
+  const key=invitation.id;
+  if(lastPlayAlert===key&&$('#incomingPlayDialog').open)return;
+  if($('#incomingPlayDialog').open&&incomingPlay?.id!==key)return;
+  incomingPlay=invitation;lastPlayAlert=key;
+  const gameName=invitation.kind==='neon'?'Labirinto Neon':'Jogo da Velha';
+  $('#incomingPlayTitle').textContent='🎮 Chamando para jogar!';
+  $('#incomingPlayDescription').textContent=(invitation.inviterName||'Seu contato')+
+    ' convidou você para '+gameName+'. Quer começar a partida agora?';
+  if(!$('#incomingPlayDialog').open){
+    $('#incomingPlayDialog').showModal();
+    soundAlert();vibrateAlert();
+  }
+}
+async function checkPendingPlayInvites(){
+  if(!me)return;
+  try{
+    const response=await api('/api/play/invites');
+    const pending=response.invitations||[];
+    const focusRoom=typeof openParam==='string'?openParam:'';
+    const chosen=pending.find(g=>g.roomId===focusRoom)||pending[0];
+    if(chosen)showIncomingPlayInvite(chosen);
+  }catch(err){console.warn('Convites pendentes indisponíveis:',err.message);}
+}
+async function replyToPlayInvitation(accept){
+  const invitation=incomingPlay;
+  if(!invitation)return;
+  const buttons=[$('#incomingPlayAccept'),$('#incomingPlayDecline')];
+  buttons.forEach(btn=>btn.disabled=true);
+  try{
+    const endpoint=invitation.kind==='neon'?'/api/play/neon/':'/api/play/';
+    await api(endpoint+invitation.id+(accept?'/accept':'/decline'),{method:'POST',data:{}});
+    incomingPlay=null;$('#incomingPlayDialog').close();
+    if(accept){
+      switchMobileTab('chats');setConversationFilter('all');
+      await openRoom(invitation.roomId);
+      $('#playChooser').hidden=true;
+      if(invitation.kind==='neon'){playPanelOpen=false;renderPlayPanel();await neonPlay.open(invitation.roomId);}
+      else {neonPlay.close();playPanelOpen=true;await refreshPlayGame(invitation.roomId,true);}
+      toast('🎮 Partida iniciada! Divirtam-se.');
+    }else toast('Convite recusado.');
+  }catch(err){toast(err.message||'Não foi possível responder.');void checkPendingPlayInvites();}
+  finally{buttons.forEach(btn=>btn.disabled=false);}
+}
+$('#incomingPlayAccept').addEventListener('click',()=>void replyToPlayInvitation(true));
+$('#incomingPlayDecline').addEventListener('click',()=>void replyToPlayInvitation(false));
+$('#incomingPlayLater').addEventListener('click',()=>$('#incomingPlayDialog').close());
 let quickPlayBusy=false;
 function openComposerPlayMenu(force){
   const menu=$('#composerPlayMenu');
