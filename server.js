@@ -17,8 +17,8 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024;
 // Arquivos maiores usam upload fracionado e acesso privado. Não ampliar o buffer legado.
 // O PostgreSQL é provisório; armazenamento de objetos deve ser usado antes de escalar.
 const TRANSFER_CHUNK_BYTES=1024*1024;
-const MAX_LARGE_FILE_BYTES=100*1024*1024;
-const TRANSFER_QUOTA_BYTES=512*1024*1024;
+const MAX_LARGE_FILE_BYTES=1024*1024*1024;
+const TRANSFER_QUOTA_BYTES=2*1024*1024*1024;
 const TRANSFER_TTL_MS=24*60*60*1000;
 const ALLOWED_FILES = {
   '.jpg': ['image/jpeg'], '.jpeg': ['image/jpeg'], '.png': ['image/png'], '.webp': ['image/webp'], '.gif': ['image/gif'],
@@ -652,7 +652,7 @@ async function api(req,res,url) {
     if(!meta)return error(res,415,'Formato não permitido. Envie documentos, imagens, vídeos e arquivos compactados.');
     const size=Number(input.size);
     if(!Number.isSafeInteger(size)||size<=MAX_FILE_BYTES||size>MAX_LARGE_FILE_BYTES)
-      return error(res,413,'Use envio normal até 25MB; arquivos grandes têm limite de 100MB.');
+      return error(res,413,'Use envio normal até 25MB; arquivos grandes têm limite de 1GB.');
     await expireUploads();
     if(userTransferBytes()+size>TRANSFER_QUOTA_BYTES)
       return error(res,507,'Capacidade de arquivos grandes atingida neste servidor. Será necessário armazenamento externo.');

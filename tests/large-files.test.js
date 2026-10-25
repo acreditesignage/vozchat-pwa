@@ -38,10 +38,15 @@ test('transferência fracionada >25MB: progresso, permissão, intervalo e cancel
   const roomId=added.data.room.id;
   const config=await req('GET','/api/transfers/config',undefined,a.cookie);
   assert.equal(config.status,200);
-  assert.equal(config.data.maxBytes,100*1024*1024);
+  assert.equal(config.data.maxBytes,1024*1024*1024);
+  assert.equal(config.data.quotaBytes,2*1024*1024*1024);
   assert.equal(config.data.chunkBytes,1024*1024);
   const size=25*1024*1024+37;
-  assert.equal((await req('POST','/api/transfers/start',{roomId,name:'large.zip',mime:'application/zip',size:101*1024*1024},a.cookie)).status,413);
+  const maxFileStart=await req('POST','/api/transfers/start',{roomId,name:'one-gig.zip',mime:'application/zip',size:1024*1024*1024},a.cookie);
+  assert.equal(maxFileStart.status,201,'Aceitar tamanho exatamente 1 GiB');
+  assert.equal(maxFileStart.data.chunks,1024);
+  assert.equal((await req('POST','/api/transfers/'+maxFileStart.data.uploadId+'/cancel',{},a.cookie)).status,200);
+  assert.equal((await req('POST','/api/transfers/start',{roomId,name:'large.zip',mime:'application/zip',size:1024*1024*1024+1},a.cookie)).status,413);
   assert.equal((await req('POST','/api/transfers/start',{roomId,name:'malware.exe',mime:'application/octet-stream',size},a.cookie)).status,415);
   assert.equal((await req('POST','/api/transfers/start',{roomId,name:'large.zip',mime:'application/zip',size},stranger.cookie)).status,403);
   const start=await req('POST','/api/transfers/start',{roomId,name:'large.zip',mime:'application/zip',size},a.cookie);

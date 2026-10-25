@@ -708,7 +708,7 @@ $('#logout').addEventListener('click',async()=>{
 $('#composer').addEventListener('submit',async e=>{e.preventDefault();const input=$('#msgInput');const content=input.value.trim();if(!content||!current)return;const roomId=current;input.value='';input.style.height='auto';try {await api(`/api/rooms/${roomId}/messages`,{method:'POST',data:{text:content}});}catch(err){input.value=content;toast(err.message);}});
 // Envio de mídias e arquivos. A seleção é feita pelo navegador (câmera nativa no celular).
 const MEDIA_MAX=25*1024*1024;
-const LARGE_MEDIA_MAX=100*1024*1024;
+const LARGE_MEDIA_MAX=1024*1024*1024;
 let uploadController=null,activeTransferId=null,uploadCanceled=false;
 const ALLOWED_EXTENSIONS=/\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|webm|m4v|3gp|pdf|txt|csv|docx?|xlsx?|pptx?|zip|7z|rar|odt|ods|odp|dcm|dwg|dxf)$/i;
 const emojiList=['😀','😃','😂','🤣','😊','😍','🥰','😘','😎','🤩','🥳','😢','😭','🥹','😡','😮','👍','👎','👏','🙌','🙏','🤝','💪','❤️','💜','💙','🔥','✨','🎉','💯','👀','🤗','😉','😅','🤔','👌','✅','📷','🎬','🌹','🥂','😴','🙈','😁','😇','🤍','💚','💛'];
@@ -723,7 +723,7 @@ function cleanupPreview(){if(previewUrl){URL.revokeObjectURL(previewUrl);preview
 function selectFiles(selected){
   if(!selected.length)return;
   const files=Array.from(selected);if(files.length>5){toast('Selecione até 5 arquivos por vez.');return;}
-  for(const file of files){if(file.size>LARGE_MEDIA_MAX){toast('O arquivo '+file.name+' excede 100 MB.');return;}if(!ALLOWED_EXTENSIONS.test(file.name)){toast('Esse tipo de arquivo não é permitido.');return;}}
+  for(const file of files){if(file.size>LARGE_MEDIA_MAX){toast('O arquivo '+file.name+' excede 1 GB.');return;}if(!ALLOWED_EXTENSIONS.test(file.name)){toast('Esse tipo de arquivo não é permitido.');return;}}
   cleanupPreview();pendingFiles=files;pendingRoom=current;
   const preview=$('#uploadPreview');
   if(files.length===1&&files[0].type.startsWith('image/')&&!/\.hei[cf]$/i.test(files[0].name)){
