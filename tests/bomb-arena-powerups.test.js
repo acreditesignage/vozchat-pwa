@@ -99,6 +99,6 @@ test('Interface mostra os quatro poderes e restringe zoom iOS apenas ao painel d
  assert.match(css,/#bombPanel\.game-fullscreen \.bomb-drop/);
  assert.match(css,/touch-action:none!important/);
  assert.doesNotMatch(html,/user-scalable\s*=\s*(?:no|0)/i);
- assert.match(sw,/vozchat-shell-v36/);
+ assert.match(sw,/vozchat-shell-v37/);
  assert.doesNotThrow(()=>new Function(ui));
 });
