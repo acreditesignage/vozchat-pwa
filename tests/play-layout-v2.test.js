@@ -54,5 +54,5 @@ test('Somente a área do jogo cancela gestos e controles duplicados não poluem 
   assert.match(css,/min-width:44px;min-height:44px/);
   assert.match(mobile,/\.composer textarea[\s\S]*?font-size:16px/);
   assert.doesNotMatch(css,/user-scalable\s*=\s*no/i);
-  assert.match(sw,/vozchat-shell-v35/);
+  assert.match(sw,/vozchat-shell-v36/);
 });

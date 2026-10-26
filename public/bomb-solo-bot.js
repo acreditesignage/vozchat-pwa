@@ -40,20 +40,26 @@ export function chooseBombBotAction(game,now=Date.now(),random=Math.random){
   });
   return {type:'move',direction:safe[0].direction};
  }
- const owned=game.bombs.some(b=>b.owner===game.users[1]);
+ const visiblePowers=(game.powerups||[]).filter(p=>!danger.has(point(p.x,p.y)));
+ const closestPower=[...visiblePowers].sort((a,b)=>{
+  const distance=p=>Math.abs(bot.x-p.x)+Math.abs(bot.y-p.y);
+  return distance(a)-distance(b);
+ })[0];
+ const bombCount=game.bombs.filter(b=>b.owner===game.users[1]).length;
  const cratesNear=dirs.some(([,dx,dy])=>game.tiles[cell(bot.x+dx,bot.y+dy)]==='+');
  const playerNear=player?.alive&&Math.abs(player.x-bot.x)+Math.abs(player.y-bot.y)<=3;
  const chance=random();
- // Bomba apenas se houver caminho livre para escapar.
- if(!owned&&!threatened&&safe.length>0&&(cratesNear||playerNear)&&chance<.38)
-  return {type:'place'};
+ // Preserva a prioridade de escapar; perto de um poder, buscar a melhoria.
+ if(bombCount<(bot.bombLimit||1)&&!threatened&&safe.length>0&&
+    !(closestPower&&Math.abs(bot.x-closestPower.x)+Math.abs(bot.y-closestPower.y)<=4)&&
+    (cratesNear||playerNear)&&chance<.38)return {type:'place'};
  const candidates=safe.length?safe:options;
  const targets=[];
  if(player?.alive)targets.push({x:player.x,y:player.y});
  for(let y=1;y<BH-1;y++)for(let x=1;x<BW-1;x++)if(game.tiles[cell(x,y)]==='+')
   targets.push({x,y});
  // Direciona-se para áreas que possam liberar caixas e alcançar o adversário.
- const goal=targets.sort((a,b)=>{
+ const goal=closestPower||targets.sort((a,b)=>{
   const d=p=>Math.abs(bot.x-p.x)+Math.abs(bot.y-p.y);
   return d(a)-d(b);
  })[0];

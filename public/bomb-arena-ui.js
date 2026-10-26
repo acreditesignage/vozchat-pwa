@@ -84,7 +84,11 @@ function createBombArena({api,toast,getMe,getRoom,onSoloExit}){
   actions.replaceChildren();
   const active=game?.status==='active';
   const myself=game?.fighters?.find(f=>f.id===uid());
-  score.textContent=game?'● '+game.fighters.map((f,i)=>(soloMode?(i===0?'Você':'CPU'):(i===0?'Azul':'Rosa'))+' '+(f.alive?'●':'×')).join('  ·  '):soloMode?'Você contra o computador':'Duas pessoas · uma arena';
+  const powerStats=myself?'  ·  💣'+(myself.bombLimit||1)+' 🔥'+(myself.range||2)+
+    ' ⚡'+(myself.moveDelay||145)+'ms'+((myself.shieldHits||0)>0?' 🛡'+myself.shieldHits:''):'';
+  score.textContent=game?'● '+game.fighters.map((f,i)=>
+    (soloMode?(i===0?'Você':'CPU'):(i===0?'Azul':'Rosa'))+' '+(f.alive?'●':'×')).join(' · ')+
+    powerStats:soloMode?'Você contra o computador':'Duas pessoas · uma arena';
   if(!game){
    status.textContent=soloMode?'Preparando a partida individual…':'Convide seu contato para a Arena Bomba.';
    if(!soloMode)action('Convidar para jogar','invite',true);
@@ -133,6 +137,20 @@ function createBombArena({api,toast,getMe,getRoom,onSoloExit}){
     ctx.fillStyle='#223a6155';ctx.beginPath();ctx.arc(left+C/2,top+C/2,2,0,Math.PI*2);ctx.fill();
    }
   }
+  // Caixas quebradas revelam apenas poderes visíveis; a rede não recebe os ocultos.
+  const powerIcons={bomb:'💣',range:'🔥',speed:'⚡',shield:'🛡️'};
+  const auraColors={bomb:'#f9a2c4',range:'#ff9b4d',speed:'#8bedff',shield:'#92f5c6'};
+  for(const power of game.powerups||[]){
+   if(!Object.hasOwn(powerIcons,power.kind))continue;
+   const x=OX+(power.x+.5)*C,y=OY+(power.y+.5)*C;
+   ctx.save();ctx.shadowBlur=13;ctx.shadowColor=auraColors[power.kind];
+   ctx.fillStyle='#152a57';
+   ctx.beginPath();ctx.roundRect(x-14,y-14,28,28,8);ctx.fill();
+   ctx.strokeStyle=auraColors[power.kind];ctx.lineWidth=1.5;ctx.stroke();
+   ctx.shadowBlur=0;ctx.font='19px system-ui, Apple Color Emoji';
+   ctx.textAlign='center';ctx.textBaseline='middle';
+   ctx.fillText(powerIcons[power.kind],x,y+1);ctx.restore();
+  }
   for(const f of game.flames||[]){
    const cx=OX+(f.x+.5)*C,cy=OY+(f.y+.5)*C;
    ctx.fillStyle='#ff893c';ctx.shadowColor='#ffd85f';ctx.shadowBlur=18;
@@ -153,7 +171,11 @@ function createBombArena({api,toast,getMe,getRoom,onSoloExit}){
    const art=window.VozChatArcadeArt?.drawHero,x=OX+(p.x+.5)*C,y=OY+(p.y+.5)*C;
    if(art)art(ctx,x,y,17,i?'#ff91d1':'#60e9fb',p.dir,p.alive);
    else{ctx.fillStyle=i?'#ff91d1':'#60e9fb';ctx.beginPath();ctx.arc(x,y,14,0,Math.PI*2);ctx.fill();}
-   if(p.id===uid()&&p.alive){ctx.strokeStyle='#ffffffc0';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,19,0,Math.PI*2);ctx.stroke();}
+   if((p.shieldHits||0)>0&&p.alive){
+    ctx.save();ctx.strokeStyle='#8ef5c6';ctx.lineWidth=3;ctx.shadowColor='#8ef5c6';ctx.shadowBlur=13;
+    ctx.beginPath();ctx.arc(x,y,19,0,Math.PI*2);ctx.stroke();ctx.restore();
+   }
+   if(p.id===uid()&&p.alive){ctx.strokeStyle='#ffffffc0';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,21,0,Math.PI*2);ctx.stroke();}
   }
  }
  async function perform(kind,direction){
@@ -219,7 +241,21 @@ function createBombArena({api,toast,getMe,getRoom,onSoloExit}){
   const wasSolo=soloMode;hide();
   if(wasSolo)onSoloExit?.();
  });
- for(const e of [pad,canvas,bombButton])e.addEventListener('touchmove',ev=>{if(ev.cancelable)ev.preventDefault();},{passive:false});
+ // Safari iOS: desabilita apenas gestos de zoom no jogo, jamais no app inteiro.
+ const protectGesture=event=>{if(event.cancelable)event.preventDefault();};
+ panel.addEventListener('gesturestart',protectGesture,{passive:false});
+ panel.addEventListener('gesturechange',protectGesture,{passive:false});
+ panel.addEventListener('dblclick',event=>{
+   if(!panel.hidden&&event.cancelable)event.preventDefault();
+ },{passive:false});
+ panel.addEventListener('touchstart',event=>{
+   if(!panel.hidden&&event.touches?.length>1&&event.cancelable)event.preventDefault();
+ },{passive:false});
+ for(const el of [pad,canvas,bombButton]){
+   el.addEventListener('touchmove',protectGesture,{passive:false});
+   el.addEventListener('contextmenu',protectGesture);
+ }
+
  return {receive,openSolo,open:async rid=>{
    stopSolo();roomId=rid;game=null;show();
    try{const r=await api('/api/play/bomb/room/'+encodeURIComponent(rid));

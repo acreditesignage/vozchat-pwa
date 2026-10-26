@@ -98,7 +98,7 @@ test('UI mantém zoom acessível, etapas e cache de instalação',()=>{
   assert.match(talkHtml,/id="installGuideTalk"/);
   assert.match(css,/min-height:48px/);
   assert.doesNotMatch(css,/user-scalable=no|touch-action:none/);
-  assert.match(worker,/vozchat-shell-v35/);
+  assert.match(worker,/vozchat-shell-v36/);
   assert.match(worker,/\/install-guide.js/);
   assert.match(worker,/\/install-guide.css/);
 });

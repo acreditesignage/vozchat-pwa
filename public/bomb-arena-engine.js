@@ -4,6 +4,45 @@ export const BW=13,BH=11;
 const DIR={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]};
 const index=(x,y)=>y*BW+x;
 const key=(x,y)=>x+','+y;
+// Limites conservadores de equilíbrio entre jogos, válidos para partidas antigas.
+export const POWERUPS=['bomb','range','speed','shield'];
+const MAX_BOMBS=4,MAX_RANGE=6,MIN_DELAY=95;
+function seededRandom(seed){
+ let state=((seed>>>0)^0x9e3779b9)>>>0;
+ return ()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/4294967296;};
+}
+function generateHiddenPowers(tiles,seed){
+ const random=seededRandom(seed),hidden={};
+ for(let y=1;y<BH-1;y++)for(let x=1;x<BW-1;x++){
+  if(tiles[index(x,y)]!=='+')continue;
+  const roll=random();
+  const kind=roll<.13?'bomb':roll<.25?'range':roll<.35?'speed':roll<.43?'shield':null;
+  if(kind)hidden[key(x,y)]=kind;
+ }
+ return hidden;
+}
+function revealPower(game,x,y){
+ game.hiddenPowerups ||= {};
+ game.powerups ||= [];
+ const cell=key(x,y),kind=game.hiddenPowerups[cell];
+ if(!POWERUPS.includes(kind))return;
+ if(!game.powerups.some(p=>p.x===x&&p.y===y))
+  game.powerups.push({x,y,kind});
+ delete game.hiddenPowerups[cell];
+}
+function pickupPower(game,fighter,x,y,now){
+ game.powerups ||= [];
+ const i=game.powerups.findIndex(p=>p.x===x&&p.y===y);
+ if(i<0)return;
+ const [power]=game.powerups.splice(i,1);
+ switch(power.kind){
+  case 'bomb':fighter.bombLimit=Math.min(MAX_BOMBS,(fighter.bombLimit||1)+1);break;
+  case 'range':fighter.range=Math.min(MAX_RANGE,(fighter.range||2)+1);break;
+  case 'speed':fighter.moveDelay=Math.max(MIN_DELAY,(fighter.moveDelay||WAIT)-15);break;
+  case 'shield':fighter.shieldHits=Math.min(2,(fighter.shieldHits||0)+1);break;
+ }
+ fighter.lastPowerup={kind:power.kind,at:now};
+}
 const WAIT=145,BOMB_MS=2300,FIRE_MS=720;
 const startPos=[[1,1],[BW-2,BH-2]];
 const safeSpawn=(x,y)=>startPos.some(([a,b])=>(Math.abs(a-x)+Math.abs(b-y)<=2));
@@ -23,16 +62,18 @@ export function createArena(seed=12345){
  return cells;
 }
 export function createBombGame(id,roomId,users,inviterId,seed=Date.now(),now=Date.now()){
+ const tiles=createArena(seed);
  return {id,roomId,users,inviterId,kind:'bomb',status:'pending',createdAt:stamp(now),updatedAt:stamp(now),
-  lastPlayerAt:stamp(now),winner:null,tiles:createArena(seed),
-  fighters:startPos.map(([x,y])=>({x,y,alive:true,dir:'down',lastMoveAt:0,shieldUntil:0})),
+  lastPlayerAt:stamp(now),winner:null,tiles,hiddenPowerups:generateHiddenPowers(tiles,seed),powerups:[],
+  fighters:startPos.map(([x,y])=>({x,y,alive:true,dir:'down',lastMoveAt:0,shieldUntil:0,
+    bombLimit:1,range:2,moveDelay:WAIT,shieldHits:0})),
   bombs:[],flames:[],turn:0};
 }
 export function bombView(game,lookup=()=>null){
  return {id:game.id,roomId:game.roomId,kind:'bomb',status:game.status,createdAt:game.createdAt,
    updatedAt:game.updatedAt,inviterId:game.inviterId,winner:game.winner,
    tiles:game.tiles,fighters:game.users.map((uid,i)=>({id:uid,name:lookup(uid)?.name||'Jogador',
-     ...game.fighters[i]})),bombs:game.bombs,flames:game.flames,turn:game.turn};
+     ...game.fighters[i]})),bombs:game.bombs,flames:game.flames,powerups:game.powerups||[],turn:game.turn};
 }
 export function startBombGame(game,now=Date.now()){
  if(game.status!=='pending')return false;
@@ -48,7 +89,13 @@ function finish(game,now){
  game.finishedAt=stamp(now);game.updatedAt=stamp(now);
 }
 function hit(game,x,y,now){
- for(const p of game.fighters)if(p.alive&&p.x===x&&p.y===y&&now>=p.shieldUntil)p.alive=false;
+ for(const p of game.fighters){
+  if(!p.alive||p.x!==x||p.y!==y||now<p.shieldUntil)continue;
+  if((p.shieldHits||0)>0){
+   p.shieldHits--;
+   p.shieldUntil=now+950; // Impede gastar múltiplos escudos no mesmo fogo.
+  }else p.alive=false;
+ }
 }
 function explode(game,origin,now){
  const queue=[origin],seen=new Set();
@@ -61,7 +108,11 @@ function explode(game,origin,now){
     const x=bomb.x+dx*n,y=bomb.y+dy*n,cell=game.tiles[index(x,y)];
     if(cell===undefined||cell==='#')break;
     squares.push({x,y});
-    if(cell==='+'){game.tiles[index(x,y)]=' ';break;}
+    if(cell==='+'){
+      game.tiles[index(x,y)]=' ';
+      revealPower(game,x,y);
+      break;
+    }
    }
   }
   for(const p of squares){
@@ -93,10 +144,11 @@ export function moveBombGame(game,uid,direction,now=Date.now()){
  if(!Object.hasOwn(DIR,direction))return {code:400,error:'Direção inválida.'};
  const i=game.users.indexOf(uid);if(i<0)return {code:403,error:'Jogador não autorizado.'};
  const p=game.fighters[i];if(!p.alive)return {code:409,error:'Você já foi eliminado.'};
- if(now-p.lastMoveAt<WAIT)return {changed:false};
+ if(now-p.lastMoveAt<(p.moveDelay||WAIT))return {changed:false};
  const [dx,dy]=DIR[direction],x=p.x+dx,y=p.y+dy;
  if(game.tiles[index(x,y)]!==' '||game.bombs.some(b=>b.x===x&&b.y===y))return {changed:false};
  p.x=x;p.y=y;p.dir=direction;p.lastMoveAt=now;
+ pickupPower(game,p,x,y,now);
  game.lastPlayerAt=stamp(now);game.updatedAt=stamp(now);game.turn++;
  if(game.flames.some(f=>f.x===x&&f.y===y))hit(game,x,y,now);
  finish(game,now);
@@ -106,9 +158,10 @@ export function placeBomb(game,uid,now=Date.now()){
  if(game.status!=='active')return {code:409,error:'A partida não está ativa.'};
  const i=game.users.indexOf(uid);if(i<0)return {code:403,error:'Jogador não autorizado.'};
  const p=game.fighters[i];if(!p.alive)return {code:409,error:'Você foi eliminado.'};
- if(game.bombs.some(b=>b.owner===uid))return {code:409,error:'Aguarde sua bomba explodir.'};
+ if(game.bombs.filter(b=>b.owner===uid).length>=(p.bombLimit||1))
+  return {code:409,error:'Seu limite de bombas foi atingido.'};
  if(game.bombs.some(b=>b.x===p.x&&b.y===p.y))return {code:409,error:'Já existe uma bomba aqui.'};
- const bomb={id:(game.turn+1)+'-'+i,x:p.x,y:p.y,owner:uid,range:2,expiresAt:now+BOMB_MS};
+ const bomb={id:(game.turn+1)+'-'+i,x:p.x,y:p.y,owner:uid,range:p.range||2,expiresAt:now+BOMB_MS};
  game.bombs.push(bomb);game.lastPlayerAt=stamp(now);game.updatedAt=stamp(now);game.turn++;
  return {changed:true};
 }
