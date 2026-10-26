@@ -21,13 +21,18 @@ const day = iso => new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month
 let toastTimer;
 function toast(msg) {const el=$('#toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3700);}
 async function api(url,{method='GET',data,headers={}}={}) {let opt={method,credentials:'same-origin',headers};if(data!==undefined){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(data);}let response;try{response=await fetch(url,opt);}catch{throw new Error('Falha na conexão com o servidor.');}let json=await response.json().catch(()=>({}));if(!response.ok)throw new Error(json.error||'Não foi possível concluir.');return json;}
-const bombPlay=window.createBombArena({api,toast,getMe:()=>me,getRoom:()=>current});
+const bombPlay=window.createBombArena({api,toast,getMe:()=>me,getRoom:()=>current,onSoloExit:()=>void playHistory.show()});
 const neonPlay=window.createNeonPlay({api,toast,getMe:()=>me,getRoom:()=>current,
   onInvitation:()=>{}
 });
 const playHistory=window.createPlayHistory({
   api,toast,getMe:()=>me,getIdentities:()=>identities,getRooms:()=>rooms,getRoom:()=>current,
   openContact:contactId=>openContactDialog(contactId),
+  openBombSolo:async()=>{
+    neonPlay.close();
+    playPanelOpen=false;renderPlayPanel();
+    await bombPlay.openSolo();
+  },
   openChat:async(roomId,gameKind)=>{
     switchMobileTab('chats');setConversationFilter('all');
     await openRoom(roomId);
