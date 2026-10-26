@@ -59,6 +59,7 @@ function createBombArena({api,toast,getMe,getRoom,onSoloExit}){
   document.documentElement.classList.remove('vozchat-game-active');}
  function show(){
   if(panel.parentElement!==document.body)document.body.append(panel);
+  $('bombModeLabel').textContent=soloMode?'Solo · Você contra o computador':'Multiplayer · 2 jogadores';
   document.activeElement?.blur?.();
   panel.hidden=false;panel.classList.add('game-fullscreen');
   document.documentElement.classList.add('vozchat-game-active');draw();
