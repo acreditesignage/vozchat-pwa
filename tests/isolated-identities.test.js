@@ -112,6 +112,6 @@ test('interface para trocar perfis sem exibir proprietário em links públicos',
   assert.match(app,/renderIdentities\(\)/);
   assert.match(app,/identity_changed/);
   assert.match(sw,/profileId/);
-  assert.match(sw,/vozchat-shell-v36/);
+  assert.match(sw,/vozchat-shell-v37/);
   assert.doesNotThrow(()=>new Function(app));
 });
