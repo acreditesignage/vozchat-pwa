@@ -49,7 +49,7 @@ test('Botão Jogar sozinho da Arena Bomba está ligado ao modo solo real, sem ex
  assert.match(ui,/import\('\/bomb-solo-bot\.js'\)/);
  assert.match(ui,/soloEngine\.placeBomb\(soloGame,'solo'\)/);
  assert.match(ui,/soloEngine\.moveBombGame\(soloGame,'solo',direction\)/);
- assert.match(sw,/vozchat-shell-v35/);
+ assert.match(sw,/vozchat-shell-v36/);
  assert.match(sw,/\/bomb-solo-bot\.js/);
  assert.doesNotThrow(()=>new Function(hub));
  assert.doesNotThrow(()=>new Function(ui));
