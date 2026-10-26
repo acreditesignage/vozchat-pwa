@@ -30,5 +30,5 @@ test('discrição oculta miniatura sem alegar bloqueio de prints no iPhone',()=>
   assert.match(app,/document\.visibilityState==='hidden'/);
   assert.match(app,/settingsHidePreview/);
   assert.match(app,/addEventListener\('visibilitychange',syncPrivacyShield\)/);
-  assert.match(sw,/vozchat-shell-v36/);
+  assert.match(sw,/vozchat-shell-v37/);
 });
