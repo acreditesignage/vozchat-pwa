@@ -1192,7 +1192,16 @@ async function deactivateDirectRoom(room){
   const match=p.match(/^\/api\/rooms\/([0-9a-f-]{36})\/(messages|audio|flowtalk|files)$/);
   if(match) {
     const rid=match[1]; const r=member(u.id,rid); if(!r) return error(res,403,'Você não participa desta conversa.');
-    if(method==='GET'&&match[2]==='messages') { const all=db.messages.filter(m=>m.roomId===rid); return json(res,200,{messages:all.slice(-300)}); }
+    if(method==='GET'&&match[2]==='messages') {
+      const all=db.messages.filter(m=>m.roomId===rid);
+      const cursor=url.searchParams.get('before');
+      const requested=Number(url.searchParams.get('limit')||300);
+      const limit=Number.isInteger(requested)&&requested>=1&&requested<=300?requested:300;
+      const end=cursor?all.findIndex(m=>m.id===cursor):all.length;
+      if(cursor&&end<0)return error(res,400,'Mensagem de referência não encontrada nesta conversa.');
+      const start=Math.max(0,end-limit);
+      return json(res,200,{messages:all.slice(start,end),hasMore:start>0});
+    }
     if(method==='POST'&&match[2]==='messages') { const input=JSON.parse((await body(req)).toString('utf8')); const content=String(input.text||'').trim(); if(!content||content.length>2000) return error(res,400,'Mensagem deve ter de 1 a 2000 caracteres.'); return json(res,201,{message:await sendMsg(r,u,'text',{text:content})}); }
     if(method==='POST'&&match[2]==='files') {
       const mime=String(req.headers['content-type']||'').split(';')[0].trim().toLowerCase();
