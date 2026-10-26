@@ -93,8 +93,8 @@ test('UI restaura rooms antes de ordenação, protege fechamento e carrega hist�
  assert.match(html,/id="contactOptionsDialog"/);
  assert.match(html,/id="closeChatMenuButton"/);
  assert.match(html,/id="removeContactButton"/);
- assert.match(js,/\$\('closeChatMenuButton'\)\.addEventListener/);
- assert.match(js,/\$\('contactOptionsButton'\)\.addEventListener/);
+ assert.match(js,/\$\('#closeChatMenuButton'\)\.addEventListener/);
+ assert.match(js,/\$\('#contactOptionsButton'\)\.addEventListener/);
  assert.doesNotMatch(html,/id="removeContactButton"[^>]*>\s*<span[^>]*>×/);
  assert.match(css,/\.load-earlier-messages/);
  assert.doesNotThrow(()=>new Function(js));
