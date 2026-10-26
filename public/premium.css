@@ -783,3 +783,32 @@ html.vozchat-game-active,html.vozchat-game-active body{
 #bombPanel.game-fullscreen .bomb-drop{
   cursor:pointer;
 }
+
+
+/* Mensagens persistentes: histórico completo paginado, e fechamento ≠ remoção. */
+.contact-options-button{
+ display:grid;place-items:center;flex:none;
+ width:39px;height:39px;min-width:39px;
+ border:1px solid var(--ui-edge);border-radius:12px;
+ background:var(--ui-soft);color:var(--ui-strong);
+ font-size:24px;line-height:1;
+}
+.contact-options-button:hover,.contact-options-button:focus-visible{border-color:var(--ui-accent)}
+.contact-options-dialog .contact-option-safe,
+.contact-options-dialog .contact-option-danger{
+ display:block;width:100%;border-radius:12px;padding:14px;margin-top:10px;
+ text-align:center;font-size:13px;font-weight:800;min-height:47px;
+}
+.contact-options-dialog .contact-option-safe{
+ border:1px solid var(--ui-edge);background:var(--ui-soft);color:var(--ui-accent);
+}
+.contact-options-dialog .contact-option-danger{
+ border:1px solid #e99baf;background:#fff0f3;color:#ac244a;
+}
+.load-earlier-messages{
+ display:block;flex:none;align-self:center;max-width:90%;margin:6px auto 14px;
+ border:1px solid var(--ui-edge);border-radius:18px;
+ padding:11px 16px;background:var(--ui-card);color:var(--ui-accent);
+ font-size:12px;font-weight:800;min-height:44px;
+}
+.load-earlier-messages:disabled{opacity:.55}
