@@ -111,7 +111,7 @@ test('Arena Bomba no menu, no chat, push, D-pad em cruz e novos personagens',()=
  assert.match(ui,/setPointerCapture/);assert.match(ui,/data-bomb-dir/);
  assert.match(art,/drawArcadeHero/);
  assert.match(neon,/VozChatArcadeArt\?\.drawHero/);
- assert.match(sw,/vozchat-shell-v34/);
+ assert.match(sw,/vozchat-shell-v35/);
  assert.doesNotThrow(()=>new Function(ui));
  assert.doesNotThrow(()=>new Function(art));
  assert.doesNotThrow(()=>new Function(app));
