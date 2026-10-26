@@ -131,7 +131,7 @@ test('botão Jogar fixo no mobile, histórico privado e retomar conversa estão 
  assert.match(solo,/import\('\/neon-maze-engine\.js'\)/);
  assert.match(solo,/function findBotMove\(/);
  assert.match(solo,/localStorage\.setItem\(storageKey\(\)/);
- assert.match(sw,/vozchat-shell-v36/);
+ assert.match(sw,/vozchat-shell-v37/);
  assert.match(sw,/\/play-history\.js/);
  assert.doesNotThrow(()=>new Function(js));
  assert.doesNotThrow(()=>new Function(script));

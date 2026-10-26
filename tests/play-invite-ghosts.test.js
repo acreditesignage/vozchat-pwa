@@ -102,7 +102,7 @@ test('Botão de controle no campo de mensagem, convite simples e notificação e
  assert.match(server,/kind:\['game','maze','bomb'\].includes\(msg.type\)\?'game-invite'/);
  assert.match(sw,/payload.kind==='game-invite'/);
  assert.match(sw,/requireInteraction:isTalk\|\|isCall\|\|isContactRequest\|\|isGameInvite/);
- assert.match(sw,/vozchat-shell-v36/);
+ assert.match(sw,/vozchat-shell-v37/);
  assert.match(css,/\.composer-play-button/);
  assert.match(solo,/function startDrones\(/);
  assert.doesNotThrow(()=>new Function(app));
