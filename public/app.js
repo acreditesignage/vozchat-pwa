@@ -54,7 +54,7 @@ $('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=
       },{once:true});
     }
   }}catch(err){toast(err.message);}finally{deferContactInviteUntilWelcome=false;btn.disabled=false;}});
-async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;identities=data.identities||[];
+async function start() {let data;try {data=await api('/api/bootstrap');}catch{showAuth();return;}me=data.user;identities=data.identities||[];rooms=Array.isArray(data.rooms)?data.rooms:[];
   if(identityParam && identityParam!==me.id){
     try {
       const previousId=me.id;
