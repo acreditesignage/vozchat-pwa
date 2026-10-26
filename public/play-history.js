@@ -1,6 +1,6 @@
 // VozChat Play · Acesso permanente + histórico de partidas por perfil.
 // Não guarda jogos no navegador: só recupera o histórico autorizado pelo servidor.
-function createPlayHistory({api,toast,getMe,getIdentities,getRooms,getRoom,openChat,openContact}){
+function createPlayHistory({api,toast,getMe,getIdentities,getRooms,getRoom,openChat,openContact,openBombSolo}){
   const $=id=>document.getElementById(id);
   const dialog=$('playHistoryDialog');
   let selectedGame='neon-maze';
@@ -122,6 +122,10 @@ function createPlayHistory({api,toast,getMe,getIdentities,getRooms,getRoom,openC
     dialog.showModal();
     await refresh();
   }
+  $('playHubSoloBomb').addEventListener('click',()=>{
+    dialog.close();
+    void openBombSolo();
+  });
   for(const [id,game] of [['playHubSoloNeon','neon'],['playHubSoloTic','tic']]){
     $(id).addEventListener('click',()=>{dialog.close();void solo.open(game);});
   }

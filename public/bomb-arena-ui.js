@@ -1,5 +1,5 @@
 // Arena Bomba · multiplayer pelo VozChat. Apenas renderiza; servidor valida as jogadas.
-function createBombArena({api,toast,getMe,getRoom}){
+function createBombArena({api,toast,getMe,getRoom,onSoloExit}){
  const $=id=>document.getElementById(id),panel=$('bombPanel'),canvas=$('bombCanvas');
  const ctx=canvas.getContext('2d'),status=$('bombStatus'),actions=$('bombActions');
  // Desenho Retina: as medidas lógicas ficam em 520x440 para todos os celulares.
@@ -9,25 +9,69 @@ function createBombArena({api,toast,getMe,getRoom}){
  const score=$('bombScore'),pad=$('bombDpad'),bombButton=$('bombPlace');
  const W=13,H=11,C=36,OX=26,OY=22;
  let game=null,roomId=null,busy=false,moving=false,hold=null,dir=null,swipe=null;
- const uid=()=>getMe()?.id,allowed=()=>roomId===getRoom();
+ let soloMode=false,soloEngine=null,soloBot=null,soloGame=null,soloTimer=null,botTimer=null,soloSerial=0;
+ const uid=()=>soloMode?'solo':getMe()?.id,allowed=()=>soloMode||roomId===getRoom();
+ function stopSolo(){
+  ++soloSerial;
+  if(soloTimer!==null)clearInterval(soloTimer);
+  if(botTimer!==null)clearInterval(botTimer);
+  soloTimer=null;botTimer=null;soloGame=null;soloMode=false;
+ }
+ function updateSolo(){
+  if(!soloMode||!soloEngine||!soloGame)return;
+  game=soloEngine.bombView(soloGame,id=>({name:id==='solo'?'Você':'Computador'}));
+  draw();
+ }
+ function newSoloRound(){
+  if(!soloEngine||!soloMode)return;
+  if(soloTimer!==null)clearInterval(soloTimer);
+  if(botTimer!==null)clearInterval(botTimer);
+  soloGame=soloEngine.createBombGame('arena-solo-'+Date.now(),'solo',['solo','cpu'],'solo',Date.now());
+  soloEngine.startBombGame(soloGame);
+  updateSolo();
+  soloTimer=setInterval(()=>{
+   if(!soloMode||!soloGame||document.hidden||soloGame.status!=='active')return;
+   if(soloEngine.tickBombGame(soloGame))updateSolo();
+  },100);
+  botTimer=setInterval(()=>{
+   if(!soloMode||!soloGame||document.hidden||soloGame.status!=='active')return;
+   const choice=soloBot.chooseBombBotAction(soloGame);
+   if(!choice)return;
+   const result=choice.type==='place'?
+     soloEngine.placeBomb(soloGame,'cpu'):
+     soloEngine.moveBombGame(soloGame,'cpu',choice.direction);
+   if(result.changed)updateSolo();
+  },245);
+ }
+ async function openSolo(){
+  stopSolo();stop();roomId=null;soloMode=true;game=null;show();
+  status.textContent='Preparando partida contra o computador…';
+  const serial=soloSerial;
+  try{
+   const [engine,bot]=await Promise.all([import('/bomb-arena-engine.js'),import('/bomb-solo-bot.js')]);
+   if(!soloMode||serial!==soloSerial||panel.hidden)return;
+   soloEngine=engine;soloBot=bot;newSoloRound();
+  }catch(err){toast('Não foi possível carregar a Arena Bomba individual.');hide();}
+ }
  function stop(){if(hold)clearInterval(hold);hold=null;dir=null;
   for(const b of pad.querySelectorAll('[data-bomb-dir]'))b.classList.remove('pressed');}
- function hide(){stop();panel.hidden=true;panel.classList.remove('game-fullscreen');
+ function hide(){stop();stopSolo();panel.hidden=true;panel.classList.remove('game-fullscreen');
   document.documentElement.classList.remove('vozchat-game-active');}
  function show(){
   if(panel.parentElement!==document.body)document.body.append(panel);
+  $('bombModeLabel').textContent=soloMode?'Solo · Você contra o computador':'Multiplayer · 2 jogadores';
   document.activeElement?.blur?.();
   panel.hidden=false;panel.classList.add('game-fullscreen');
   document.documentElement.classList.add('vozchat-game-active');draw();
  }
  function current(){return game&&game.fighters.some(f=>f.id===uid());}
  function view(next){
-  if(!next||!allowed())return;
+  if(!next||!allowed()||soloMode)return;
   if(game?.id===next.id&&game.turn>next.turn)return;
   game=next;draw();
  }
  function receive(next){
-  if(!next||next.roomId!==getRoom())return;
+  if(soloMode||!next||next.roomId!==getRoom())return;
   roomId=next.roomId;view(next);
  }
  function action(label,kind,primary=false){
@@ -40,15 +84,19 @@ function createBombArena({api,toast,getMe,getRoom}){
   actions.replaceChildren();
   const active=game?.status==='active';
   const myself=game?.fighters?.find(f=>f.id===uid());
-  score.textContent=game?'● '+game.fighters.map((f,i)=>(i===0?'Azul':'Rosa')+' '+(f.alive?'●':'×')).join('  ·  '):'Duas pessoas · uma arena';
-  if(!game){status.textContent='Convide seu contato para a Arena Bomba.';action('Convidar para jogar','invite',true);}
-  else if(game.status==='pending'){
+  score.textContent=game?'● '+game.fighters.map((f,i)=>(soloMode?(i===0?'Você':'CPU'):(i===0?'Azul':'Rosa'))+' '+(f.alive?'●':'×')).join('  ·  '):soloMode?'Você contra o computador':'Duas pessoas · uma arena';
+  if(!game){
+   status.textContent=soloMode?'Preparando a partida individual…':'Convide seu contato para a Arena Bomba.';
+   if(!soloMode)action('Convidar para jogar','invite',true);
+  }else if(game.status==='pending'){
    if(game.inviterId===uid()){status.textContent='Convite enviado, aguardando o contato…';action('Cancelar convite','cancel');}
    else{status.textContent='Seu contato convidou você!';action('Aceitar e jogar','accept',true);action('Recusar','decline');}
-  }else if(active){status.textContent=myself?.alive?'Use o direcional e toque em 💣 para colocar a bomba.':'Você foi atingido. Aguardando resultado.';
-   action('Encerrar partida','quit');
+  }else if(active){
+   status.textContent=myself?.alive?'Use o direcional e toque em 💣 para colocar a bomba.':'Você foi atingido. Aguardando resultado.';
+   if(soloMode)action('↻ Reiniciar','invite',true);
+   else action('Encerrar partida','quit');
   }else{
-   status.textContent=game.status==='won'?(game.winner===uid()?'🏆 Você venceu!':'Seu contato venceu.'):
+   status.textContent=game.status==='won'?(game.winner===uid()?'🏆 Você venceu!':soloMode?'O computador venceu.':'Seu contato venceu.'):
      game.status==='draw'?'Empate!':game.status==='declined'?'Convite recusado.':
      game.status==='canceled'?'Convite cancelado.':game.status==='abandoned'?'Partida encerrada.':'Partida expirada.';
    action('▶ Nova partida','invite',true);
@@ -110,6 +158,15 @@ function createBombArena({api,toast,getMe,getRoom}){
  }
  async function perform(kind,direction){
   if(!allowed()||busy)return;
+  if(soloMode){
+   if(kind==='invite'){newSoloRound();return;}
+   if(kind==='quit'){hide();onSoloExit?.();return;}
+   if(kind==='place'&&soloGame?.status==='active'){
+    const result=soloEngine.placeBomb(soloGame,'solo');
+    if(result.changed)updateSolo();
+   }
+   return;
+  }
   if(kind==='quit'&&!confirm('Encerrar a partida para os dois jogadores?'))return;
   const rid=roomId;busy=true;
   try{
@@ -123,6 +180,11 @@ function createBombArena({api,toast,getMe,getRoom}){
  }
  async function move(direction){
   if(!game||game.status!=='active'||moving||!current()||panel.hidden)return;
+  if(soloMode){
+   const result=soloEngine.moveBombGame(soloGame,'solo',direction);
+   if(result.changed)updateSolo();
+   return;
+  }
   moving=true;
   const id=game.id,rid=roomId;
   try{const res=await api('/api/play/bomb/'+id+'/move',{method:'POST',data:{direction}});
@@ -153,10 +215,13 @@ function createBombArena({api,toast,getMe,getRoom}){
  document.addEventListener('pointerup',stop);
  document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
  bombButton.addEventListener('click',()=>{if(game?.status==='active')void perform('place');});
- $('bombClose').addEventListener('click',hide);
+ $('bombClose').addEventListener('click',()=>{
+  const wasSolo=soloMode;hide();
+  if(wasSolo)onSoloExit?.();
+ });
  for(const e of [pad,canvas,bombButton])e.addEventListener('touchmove',ev=>{if(ev.cancelable)ev.preventDefault();},{passive:false});
- return {receive,open:async rid=>{
-   roomId=rid;show();
+ return {receive,openSolo,open:async rid=>{
+   stopSolo();roomId=rid;game=null;show();
    try{const r=await api('/api/play/bomb/room/'+encodeURIComponent(rid));
      if(rid===getRoom()){game=r.game;draw();}
    }catch(err){toast(err.message);hide();}

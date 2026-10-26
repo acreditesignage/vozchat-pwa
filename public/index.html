@@ -80,7 +80,7 @@
         </section>
         <section id="bombPanel" class="bomb-panel" hidden aria-label="Arena Bomba: duelo privado">
           <div class="bomb-heading">
-            <div class="bomb-logo">💣</div><div class="bomb-heading-info"><strong>Arena Bomba</strong><small>Duelo de arcade · 2 jogadores</small></div>
+            <div class="bomb-logo">💣</div><div class="bomb-heading-info"><strong>Arena Bomba</strong><small id="bombModeLabel">Duelo de arcade · 2 jogadores</small></div>
             <button id="bombClose" class="play-close" type="button" aria-label="Fechar Arena Bomba e voltar ao chat">×</button>
           </div>
           <div id="bombScore" class="bomb-score">Dois jogadores · uma arena</div>
@@ -158,7 +158,10 @@
       <div class="play-hub-game-card">
         <div class="play-hub-game-art play-hub-bomb-art">💣 💥</div>
         <strong>Arena Bomba</strong><small>Destrua caixas e escape das explosões.</small>
-        <div class="play-hub-game-actions"><button id="playHubDuoBomb" type="button" class="play-hub-primary">👥 Convidar contato</button></div>
+        <div class="play-hub-game-actions">
+          <button id="playHubSoloBomb" type="button" class="play-hub-primary">▶ Jogar sozinho</button>
+          <button id="playHubDuoBomb" type="button">👥 Com contato</button>
+        </div>
       </div>
       <div class="play-hub-game-card">
         <div class="play-hub-game-art play-hub-neon-art">✦ ◉ ◆</div>
