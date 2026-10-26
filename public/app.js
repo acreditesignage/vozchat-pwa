@@ -554,7 +554,7 @@ async function openRoom(roomId){
   renderMessages();void refreshPlayGame(roomId);
  }catch(err){toast(err.message);}
 }
-function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;paintAvatar($('#headerAvatar'),r.name,r.avatarUrl);$('#removeContactButton').hidden=!r.isDirect;
+function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;paintAvatar($('#headerAvatar'),r.name,r.avatarUrl);$('#contactOptionsButton').hidden=!r.isDirect;
   const playAllowed=!!r.isDirect&&!identities.some(p=>p.id===me?.id&&p.label==='Profissional');
   $('#playButton').hidden=!playAllowed;
   $('#composerPlayButton').hidden=!playAllowed;
@@ -1808,10 +1808,15 @@ $('#pendingContactsButton').addEventListener('click',async()=>{
   };
   openDialog('pendingContactsDialog');await renderInside();
 });
+$('#contactOptionsButton').addEventListener('click',()=>{const room=rooms.find(x=>x.id===current);if(room?.isDirect)openDialog('contactOptionsDialog');});
+$('#closeChatMenuButton').addEventListener('click',()=>{
+ $('#contactOptionsDialog').close();stopLiveRadio();resetActiveChat();switchMobileTab('chats');
+});
 $('#removeContactButton').addEventListener('click',async()=>{
   const r=rooms.find(x=>x.id===current);
   if(!r?.isDirect)return;
-  if(!confirm('Excluir '+r.name+' dos contatos? A conversa será removida para ambos e ficará indisponível até uma nova solicitação ser aceita. O histórico permanecerá armazenado.'))return;
+  $('#contactOptionsDialog').close();
+  if(!confirm('REMOVER CONTATO: '+r.name+'? Esta ação retira a conversa da lista DAS DUAS PESSOAS até que uma nova solicitação seja aceita. Para apenas sair do chat, use VOLTAR. As mensagens permanecem armazenadas.'))return;
   const button=$('#removeContactButton');button.disabled=true;
   try{
     await api('/api/contacts/'+r.id,{method:'DELETE'});
