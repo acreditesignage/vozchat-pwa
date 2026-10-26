@@ -1,5 +1,5 @@
 const $ = q => document.querySelector(q);
-let me=null, identities=[], rooms=[], current=null, messages=[], events=null, isRegister=false, recorder=null, pieces=[], recordingStart=0, recordingTicker=null, recordedCanceled=false, deferredInstall=null, pendingFiles=[],pendingRoom=null,previewUrl=null,uploading=false;
+let me=null, identities=[], rooms=[], current=null, messages=[], hasEarlierMessages=false, loadingEarlierMessages=false, events=null, isRegister=false, recorder=null, pieces=[], recordingStart=0, recordingTicker=null, recordedCanceled=false, deferredInstall=null, pendingFiles=[],pendingRoom=null,previewUrl=null,uploading=false;
 const joinParam = new URLSearchParams(location.search).get('join');
 const openParam = new URLSearchParams(location.search).get('open');
 const talkParam = new URLSearchParams(location.search).get('talk');
@@ -537,7 +537,23 @@ function connectEvents(){
   });
   events.onerror=()=>{if(!navigator.onLine)$('#offline').hidden=false;};
 }
-async function openRoom(roomId){if(current!==roomId){bombPlay.reset();openComposerPlayMenu(false);neonPlay.reset();$('#playChooser').hidden=true;stopLiveRadio();playGame=null;playRoomId=roomId;playPanelOpen=false;renderPlayPanel();}current=roomId;playHistory.roomOpened(roomId);$('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');renderHeader();renderRooms();$('#messages').replaceChildren();messages=[];try{const data=await api(`/api/rooms/${roomId}/messages`);if(current!==roomId)return;messages=data.messages;renderMessages();void refreshPlayGame(roomId);}catch(err){toast(err.message);} }
+async function openRoom(roomId){
+ if(current!==roomId){
+  bombPlay.reset();openComposerPlayMenu(false);neonPlay.reset();
+  $('#playChooser').hidden=true;stopLiveRadio();
+  playGame=null;playRoomId=roomId;playPanelOpen=false;renderPlayPanel();
+ }
+ current=roomId;playHistory.roomOpened(roomId);
+ $('#emptyChat').hidden=true;$('#activeChat').hidden=false;$('#app').classList.add('chat-open');
+ renderHeader();renderRooms();$('#messages').replaceChildren();
+ messages=[];hasEarlierMessages=false;loadingEarlierMessages=false;
+ try{
+  const data=await api(`/api/rooms/${roomId}/messages`);
+  if(current!==roomId)return;
+  messages=data.messages||[];hasEarlierMessages=!!data.hasMore;
+  renderMessages();void refreshPlayGame(roomId);
+ }catch(err){toast(err.message);}
+}
 function renderHeader(){const r=rooms.find(x=>x.id===current);if(!r)return;$('#roomName').textContent=r.name;$('#memberCount').textContent=r.isDirect?'ID '+r.peerId+' · conversa privada':`${r.members} ${r.members===1?'participante':'participantes'} · grupo privado`;$('#inviteButton').hidden=!!r.isDirect;$('#groupManageButton').hidden=!!r.isDirect;paintAvatar($('#headerAvatar'),r.name,r.avatarUrl);$('#removeContactButton').hidden=!r.isDirect;
   const playAllowed=!!r.isDirect&&!identities.some(p=>p.id===me?.id&&p.label==='Profissional');
   $('#playButton').hidden=!playAllowed;
@@ -761,7 +777,48 @@ $('#chooseNeonMaze').addEventListener('click',()=>{
   void neonPlay.open(current);
 });
 $('#playClose').addEventListener('click',()=>{playPanelOpen=false;renderPlayPanel();});
-function renderMessages(){const list=$('#messages');list.replaceChildren();if(!messages.length){const msg=document.createElement('div');msg.className='mini-welcome';msg.textContent=current&&rooms.find(r=>r.id===current)?.isDirect?'Conversa iniciada ✨\nDiga oi para começar.':'Conversa iniciada ✨\nCompartilhe o convite para outras pessoas entrarem e começarem a trocar mensagens.';list.append(msg);}let lastDay='';for(const m of messages){const key=day(m.createdAt);if(key!==lastDay){const divider=document.createElement('div');divider.className='day-divider';divider.textContent=key;list.append(divider);lastDay=key;}renderMessage(m);}scrollDown();}
+function renderMessages(keepScroll=false){
+ const list=$('#messages');list.replaceChildren();
+ if(hasEarlierMessages){
+  const button=document.createElement('button');button.type='button';
+  button.className='load-earlier-messages';button.textContent=loadingEarlierMessages?'Carregando…':'↑ Carregar mensagens anteriores';
+  button.disabled=loadingEarlierMessages;button.addEventListener('click',()=>void loadEarlierMessages());
+  list.append(button);
+ }
+ if(!messages.length){
+  const msg=document.createElement('div');msg.className='mini-welcome';
+  msg.textContent=current&&rooms.find(r=>r.id===current)?.isDirect?
+    'Conversa iniciada ✨\nDiga oi para começar.':
+    'Conversa iniciada ✨\nCompartilhe o convite para outras pessoas entrarem e começarem a trocar mensagens.';
+  list.append(msg);
+ }
+ let lastDay='';
+ for(const m of messages){
+  const key=day(m.createdAt);
+  if(key!==lastDay){const divider=document.createElement('div');divider.className='day-divider';divider.textContent=key;list.append(divider);lastDay=key;}
+  renderMessage(m);
+ }
+ if(!keepScroll)scrollDown();
+}
+async function loadEarlierMessages(){
+ if(!current||!hasEarlierMessages||loadingEarlierMessages||!messages.length)return;
+ const roomId=current,oldest=messages[0].id,list=$('#messages');
+ const oldHeight=list.scrollHeight,oldTop=list.scrollTop;
+ loadingEarlierMessages=true;
+ try{
+  const data=await api('/api/rooms/'+encodeURIComponent(roomId)+'/messages?before='+encodeURIComponent(oldest));
+  if(current!==roomId)return;
+  const ids=new Set(messages.map(m=>m.id));
+  messages=[...(data.messages||[]).filter(m=>!ids.has(m.id)),...messages];
+  hasEarlierMessages=!!data.hasMore;
+  renderMessages(true);
+  requestAnimationFrame(()=>{if(current===roomId)list.scrollTop=oldTop+(list.scrollHeight-oldHeight);});
+ }catch(err){toast('Não foi possível carregar mensagens antigas: '+err.message);}
+ finally{loadingEarlierMessages=false;if(current===roomId&&hasEarlierMessages){
+  const btn=list.querySelector('.load-earlier-messages');
+  if(btn){btn.disabled=false;btn.textContent='↑ Carregar mensagens anteriores';}
+ }}
+}
 function formatSize(size){if(size<1024)return size+' B';if(size<1048576)return (size/1024).toFixed(0)+' KB';if(size<1073741824)return (size/1048576).toFixed(1)+' MB';return (size/1073741824).toFixed(2)+' GB';}
 function renderMessage(m){
   const row=document.createElement('div');row.className='bubble-row '+(m.senderId===me.id?'mine':'other');row.dataset.id=m.id;
@@ -825,7 +882,7 @@ function openDialog(id){document.getElementById(id).showModal();}
 
 function resetActiveChat(){
   openComposerPlayMenu(false);
-  bombPlay.reset();current=null;messages=[];playGame=null;playRoomId=null;playPanelOpen=false;
+  bombPlay.reset();current=null;messages=[];hasEarlierMessages=false;loadingEarlierMessages=false;playGame=null;playRoomId=null;playPanelOpen=false;
   playHistory.syncChat(null);playHistory.sync();neonPlay.reset();$('#playChooser').hidden=true;renderPlayPanel();
   $('#app').classList.remove('chat-open');
   $('#emptyChat').hidden=false;$('#activeChat').hidden=true;
