@@ -747,3 +747,39 @@ html.vozchat-game-active,html.vozchat-game-active body{
   .bomb-drop{width:90px;height:90px}.bomb-drop span{font-size:35px}}
 @media(max-height:690px){.bomb-hint{display:none}.bomb-controls{min-height:143px}
   #bombCanvas{width:min(100%,calc((100dvh - 285px)*13/11))!important}}
+
+
+/* Arena Bomba v36: Safari iPhone não interpreta duplo toque do jogo como zoom.
+   Não mudar viewport/user-scalable; o restante do app permanece acessível. */
+#bombPanel.game-fullscreen{
+  touch-action:manipulation!important;
+  -webkit-text-size-adjust:100%;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  user-select:none;
+}
+#bombPanel.game-fullscreen button{
+  -webkit-tap-highlight-color:transparent;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  user-select:none;
+  touch-action:manipulation;
+}
+#bombPanel.game-fullscreen #bombCanvas,
+#bombPanel.game-fullscreen .bomb-controls,
+#bombPanel.game-fullscreen .bomb-dpad,
+#bombPanel.game-fullscreen .bomb-dpad button,
+#bombPanel.game-fullscreen .bomb-drop{
+  touch-action:none!important;
+  overscroll-behavior:none;
+  -webkit-touch-callout:none;
+}
+#bombPanel.game-fullscreen #bombScore{
+  font-size:clamp(11px,2.8vw,14px);
+  line-height:1.5;
+  overflow-wrap:anywhere;
+}
+#bombPanel.game-fullscreen .bomb-dpad button,
+#bombPanel.game-fullscreen .bomb-drop{
+  cursor:pointer;
+}
